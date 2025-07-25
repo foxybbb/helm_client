@@ -204,23 +204,60 @@ class GPIOWatcher:
     def _setup_gpio(self):
         """Initialize GPIO settings and interrupts"""
         try:
+            # Clean up any existing GPIO state first
+            try:
+                GPIO.cleanup(self.pin)
+            except:
+                pass  # Ignore cleanup errors
+            
             # Set GPIO mode and disable warnings
             GPIO.setwarnings(False)
             GPIO.setmode(GPIO.BCM)
             
+            logger.debug(f"Setting up GPIO pin {self.pin} as input")
+            
             # Configure pin as input with pull-down resistor
             GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
             
+            # Small delay to ensure pin is ready
+            time.sleep(0.1)
+            
+            # Check if pin can be read
+            initial_state = GPIO.input(self.pin)
+            logger.debug(f"GPIO pin {self.pin} initial state: {initial_state}")
+            
             # Add interrupt handlers for both edges
+            logger.debug(f"Adding edge detection to GPIO pin {self.pin}")
             GPIO.add_event_detect(self.pin, GPIO.BOTH, 
                                 callback=self._gpio_interrupt_handler, 
                                 bouncetime=50)  # 50ms debounce
             
             self._gpio_initialized = True
-            logger.info(f"GPIO pin {self.pin} initialized with hardware interrupts")
+            logger.info(f"GPIO pin {self.pin} initialized successfully with hardware interrupts")
             
+        except RuntimeError as e:
+            if "already been added" in str(e):
+                logger.warning(f"GPIO pin {self.pin} edge detection already exists, cleaning up and retrying...")
+                try:
+                    GPIO.remove_event_detect(self.pin)
+                    time.sleep(0.1)
+                    GPIO.add_event_detect(self.pin, GPIO.BOTH, 
+                                        callback=self._gpio_interrupt_handler, 
+                                        bouncetime=50)
+                    self._gpio_initialized = True
+                    logger.info(f"GPIO pin {self.pin} initialized successfully after cleanup")
+                except Exception as retry_e:
+                    logger.error(f"Failed to initialize GPIO after cleanup: {retry_e}")
+                    raise
+            else:
+                logger.error(f"GPIO RuntimeError: {e}")
+                raise
+        except PermissionError as e:
+            logger.error(f"Permission denied accessing GPIO. Try running with sudo or add user to gpio group: {e}")
+            raise
         except Exception as e:
-            logger.error(f"Failed to initialize GPIO: {e}")
+            logger.error(f"Failed to initialize GPIO pin {self.pin}: {e}")
+            logger.debug(f"GPIO error details: {type(e).__name__}: {e}")
             raise
     
     def _gpio_interrupt_handler(self, channel):
@@ -326,8 +363,18 @@ class GPIOWatcher:
                 self.wifi_timer = None
             
             if self._gpio_initialized:
-                GPIO.remove_event_detect(self.pin)
-                GPIO.cleanup(self.pin)
+                try:
+                    GPIO.remove_event_detect(self.pin)
+                    logger.debug(f"Removed edge detection from GPIO pin {self.pin}")
+                except Exception as e:
+                    logger.debug(f"Error removing edge detection: {e}")
+                
+                try:
+                    GPIO.cleanup(self.pin)
+                    logger.debug(f"Cleaned up GPIO pin {self.pin}")
+                except Exception as e:
+                    logger.debug(f"Error cleaning up GPIO pin: {e}")
+                
                 self._gpio_initialized = False
                 logger.info("GPIO cleanup completed")
                 

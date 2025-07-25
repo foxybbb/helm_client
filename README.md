@@ -31,8 +31,10 @@ Edit `config.json` to customize:
 1. Install dependencies: `pip install -r requirements.txt`
 2. Ensure system tools are available: `iwlist`, `nmcli` (raspistill no longer needed)
 3. Configure hostname format: `rpihelmet{number}` (e.g., `rpihelmet1`)
-4. **Test camera**: `python test_camera.py` (verify picamera2 works)
-5. **Test GPIO interrupts**: `python test_gpio.py` (verify interrupt functionality)
+4. **Setup GPIO permissions**: `sudo usermod -a -G gpio $USER` (then logout/login)
+5. **Test camera**: `python test_camera.py` (verify picamera2 works)
+6. **Test GPIO interrupts**: `python test_gpio.py` (verify interrupt functionality)
+7. **GPIO troubleshooting**: `python check_gpio.py` (if GPIO issues occur)
 
 ## Usage
 

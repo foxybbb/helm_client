@@ -42,7 +42,7 @@ def test_gpio_interrupts():
         # Define test callbacks
         def test_capture_callback():
             """Test callback for photo capture"""
-            logging.info("🔥 CAPTURE TRIGGERED! Photo would be taken now.")
+            logging.info("CAPTURE TRIGGERED! Photo would be taken now.")
         
         # Register callback
         gpio.set_capture_callback(test_capture_callback)
@@ -66,6 +66,11 @@ def test_gpio_interrupts():
         logging.info("Test interrupted by user")
     except Exception as e:
         logging.error(f"Test error: {e}")
+        logging.error("Common solutions:")
+        logging.error("1. Add user to gpio group: sudo usermod -a -G gpio $USER")
+        logging.error("2. Logout and login again")
+        logging.error("3. Or run with sudo: sudo python test_gpio.py")
+        logging.error("4. Run diagnostic: python check_gpio.py")
     finally:
         if gpio:
             gpio.cleanup()
