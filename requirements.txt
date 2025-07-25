@@ -1,0 +1,11 @@
+RPi.GPIO>=0.7.1
+# For GPIO pin monitoring and control on Raspberry Pi with hardware interrupts
+
+picamera2>=0.3.12
+# Modern Python camera library for Raspberry Pi
+
+systemd-python>=234
+# For logging to systemd journal
+
+# Optional: For enhanced logging capabilities
+# psutil>=5.8.0 
