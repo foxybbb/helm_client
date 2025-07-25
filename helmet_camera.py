@@ -30,12 +30,17 @@ def main():
     gpio = None
     
     try:
-        # Initialize logging system
-        setup_logging()
+        # Load configuration first for log directory
+        config = ConfigLoader.load_config()
+        
+        # Initialize logging system with configured directory
+        log_dir = config.get("log_dir")
+        if log_dir and log_dir.startswith("~"):
+            log_dir = str(Path(log_dir).expanduser())
+        setup_logging(log_dir=log_dir)
         logging.info("Helmet Camera System Starting...")
         
-        # Load configuration
-        config = ConfigLoader.load_config()
+        # Configuration already loaded for logging setup
         startup_delay = config["startup_delay"]
         
         logging.info(f"Waiting {startup_delay} seconds before starting main loop...")

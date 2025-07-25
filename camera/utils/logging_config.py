@@ -4,22 +4,28 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-def setup_logging(log_level=logging.INFO, log_dir="/var/log/helmet_camera"):
+def setup_logging(log_level=logging.INFO, log_dir=None):
     """
     Setup comprehensive logging for the helmet camera system
     
     Args:
         log_level: Logging level (default: INFO)
-        log_dir: Directory for log files
+        log_dir: Directory for log files (default: ~/helmet_camera_logs)
     """
     
+    # Default to home directory if not specified
+    if log_dir is None:
+        home_dir = Path.home()
+        log_dir = home_dir / "helmet_camera_logs"
+    else:
+        log_dir = Path(log_dir)
+    
     # Create log directory if it doesn't exist
-    log_path = Path(log_dir)
-    log_path.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate log filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d')
-    log_file = log_path / f"helmet_camera_{timestamp}.log"
+    log_file = log_dir / f"helmet_camera_{timestamp}.log"
     
     # Create formatters
     detailed_formatter = logging.Formatter(

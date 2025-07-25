@@ -25,6 +25,16 @@ class ConfigLoader:
                 'photo_base_dir', 'wifi_ssid', 'wifi_password'
             ]
             
+            # Optional fields with defaults
+            optional_fields = {
+                'log_dir': '~/helmet_camera_logs'
+            }
+            
+            # Add default values for missing optional fields
+            for field, default_value in optional_fields.items():
+                if field not in config:
+                    config[field] = default_value
+            
             missing_fields = [field for field in required_fields if field not in config]
             if missing_fields:
                 logger.error(f"Missing required configuration fields: {missing_fields}")

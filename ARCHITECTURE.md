@@ -54,7 +54,7 @@ journalctl -u helmet-camera -f
 journalctl -u helmet-camera --since "2025-01-25"
 
 # View file logs
-tail -f /var/log/helmet_camera/helmet_camera_20250125.log
+tail -f ~/helmet_camera_logs/helmet_camera_20250125.log
 ```
 
 ## ⚡ Hardware Interrupt Architecture

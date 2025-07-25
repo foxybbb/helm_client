@@ -24,6 +24,7 @@ Edit `config.json` to customize:
 - `min_high_duration`: Time (seconds) before WiFi scan triggers
 - `photo_base_dir`: Base directory for photo storage
 - `wifi_ssid` / `wifi_password`: Target WiFi network credentials
+- `log_dir`: Directory for log files (default: `~/helmet_camera_logs`)
 
 ## Installation
 
@@ -47,5 +48,13 @@ Photos and logs are saved to:
 /home/rpi/helmet-cam{N}/session_{YYYYMMDD}/
 ├── session_log.json
 ├── cam{N}_{YYYYMMDD_HHMMSS}_{index}.jpg
+└── ...
+```
+
+Application logs are saved to:
+```
+~/helmet_camera_logs/
+├── helmet_camera_{YYYYMMDD}.log
+├── helmet_camera_{YYYYMMDD}.log.1
 └── ...
 ``` 
