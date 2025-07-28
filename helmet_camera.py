@@ -12,6 +12,8 @@ import signal
 import sys
 from camera.factories import CameraFactory, LoggerFactory, GPIOWatcherFactory, ConfigLoader
 from camera.utils import setup_logging
+from pathlib import Path
+
 
 def signal_handler(signum, frame):
     """Handle shutdown signals gracefully"""
