@@ -1,0 +1,25 @@
+{
+  "master_id": "helm_master",
+  "gpio_pin": 17,
+  "startup_delay": 5,
+  "pulse_duration_ms": 100,
+  "pulse_interval_ms": 1000,
+  "exposure_us": 8000,
+  "timeout_ms": 5000,
+  "photo_base_dir": "/home/rpi",
+  "log_dir": "~/helmet_camera_logs",
+  "web_port": 8081,
+  "mqtt": {
+    "broker_host": "192.168.1.100",
+    "broker_port": 1883,
+    "topic_commands": "helmet/commands",
+    "topic_responses": "helmet/responses",
+    "keepalive": 60,
+    "qos": 1
+  },
+  "slaves": [
+    "rpihelmet1",
+    "rpihelmet2", 
+    "rpihelmet3"
+  ]
+} 

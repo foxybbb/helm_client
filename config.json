@@ -1,9 +1,0 @@
-{
-  "gpio_pin": 17,
-  "startup_delay": 5,
-  "min_high_duration": 60,
-  "photo_base_dir": "/home/rpi",
-  "wifi_ssid": "DackerStation",
-  "wifi_password": "Helmet1234",
-  "log_dir": "~/helmet_camera_logs"
-} 
