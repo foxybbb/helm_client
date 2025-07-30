@@ -13,6 +13,12 @@ flask>=2.3.0
 adafruit-circuitpython-bno055>=5.4.0
 # BNO055 IMU sensor library
 
+adafruit-circuitpython-ssd1306>=2.12.0
+# SSD1306 OLED display library
+
+pillow>=10.0.0
+# Python Imaging Library for display graphics
+
 systemd-python>=234
 # For logging to systemd journal
 

@@ -21,6 +21,17 @@ except ImportError:
     IMU_AVAILABLE = False
     logging.warning("IMU libraries not available - running without IMU support")
 
+# OLED Display support for master board
+try:
+    import board
+    import busio
+    import adafruit_ssd1306
+    from PIL import Image, ImageDraw, ImageFont
+    DISPLAY_AVAILABLE = True
+except ImportError:
+    DISPLAY_AVAILABLE = False
+    logging.warning("OLED display libraries not available - running without display support")
+
 logger = logging.getLogger(__name__)
 
 class MasterIMUSensor:
@@ -124,6 +135,237 @@ class MasterIMUSensor:
                 "available": False,
                 "error": f"IMU read error: {e}"
             }
+
+class MasterOLEDDisplay:
+    """OLED display handler for SSD1306 128x32 - Master board only"""
+    
+    def __init__(self, i2c_address=0x3C):
+        self.display = None
+        self.available = False
+        self.i2c_address = i2c_address
+        self.current_screen = 0
+        self.max_screens = 3
+        self.last_update = 0
+        self.update_interval = 2.0  # Update every 2 seconds
+        self._setup_display()
+    
+    def _setup_display(self):
+        """Initialize OLED display"""
+        if not DISPLAY_AVAILABLE:
+            logger.warning("OLED display libraries not installed")
+            return
+        
+        try:
+            # Initialize I2C and display
+            i2c = busio.I2C(board.SCL, board.SDA)
+            self.display = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c, addr=self.i2c_address)
+            
+            # Clear display
+            self.display.fill(0)
+            self.display.show()
+            
+            self.available = True
+            logger.info(f"Master OLED display (SSD1306 128x32) initialized at address 0x{self.i2c_address:02X}")
+            
+            # Show startup message
+            self._show_startup_message()
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize OLED display: {e}")
+            self.available = False
+    
+    def _show_startup_message(self):
+        """Show startup message on display"""
+        if not self.available:
+            return
+            
+        try:
+            # Create image for drawing
+            image = Image.new("1", (128, 32))
+            draw = ImageDraw.Draw(image)
+            
+            # Draw startup message
+            draw.text((0, 0), "MASTER HELMET", fill=255)
+            draw.text((0, 10), "SYSTEM STARTING", fill=255)
+            draw.text((0, 20), "Please wait...", fill=255)
+            
+            # Display image
+            self.display.image(image)
+            self.display.show()
+            
+            logger.debug("Startup message displayed on OLED")
+            
+        except Exception as e:
+            logger.error(f"Failed to show startup message: {e}")
+    
+    def update_display(self, master_system):
+        """Update display with current system information"""
+        if not self.available:
+            return
+            
+        current_time = time.time()
+        if current_time - self.last_update < self.update_interval:
+            return
+            
+        try:
+            # Cycle through different screens
+            if self.current_screen == 0:
+                self._show_system_status(master_system)
+            elif self.current_screen == 1:
+                self._show_statistics(master_system)
+            elif self.current_screen == 2:
+                self._show_session_info(master_system)
+            
+            # Cycle to next screen
+            self.current_screen = (self.current_screen + 1) % self.max_screens
+            self.last_update = current_time
+            
+        except Exception as e:
+            logger.error(f"Failed to update OLED display: {e}")
+    
+    def _show_system_status(self, master_system):
+        """Show system status screen"""
+        image = Image.new("1", (128, 32))
+        draw = ImageDraw.Draw(image)
+        
+        # System status
+        mqtt_status = "MQTT:ON" if master_system.mqtt_service.connected else "MQTT:OFF"
+        imu_status = "IMU:ON" if master_system.imu_sensor.available else "IMU:OFF"
+        
+        # Count online slaves
+        board_stats = master_system.mqtt_service.get_board_stats()
+        online_slaves = len([s for s in board_stats.values() if s["status"] == "online"])
+        total_slaves = len(board_stats)
+        
+        # Draw status
+        draw.text((0, 0), f"MASTER SYSTEM", fill=255)
+        draw.text((0, 8), f"{mqtt_status} {imu_status}", fill=255)
+        draw.text((0, 16), f"SLAVES: {online_slaves}/{total_slaves}", fill=255)
+        draw.text((0, 24), f"STATUS: {'READY' if master_system.running else 'STOP'}", fill=255)
+        
+        self.display.image(image)
+        self.display.show()
+    
+    def _show_statistics(self, master_system):
+        """Show statistics screen"""
+        image = Image.new("1", (128, 32))
+        draw = ImageDraw.Draw(image)
+        
+        stats = master_system.mqtt_service.get_stats()
+        
+        # Calculate success rate
+        total_responses = stats["successful_responses"] + stats["failed_responses"] + stats["timeout_responses"]
+        success_rate = int((stats["successful_responses"] / total_responses * 100)) if total_responses > 0 else 0
+        
+        # Draw statistics
+        draw.text((0, 0), f"STATISTICS", fill=255)
+        draw.text((0, 8), f"CMD: {stats['total_commands']}", fill=255)
+        draw.text((64, 8), f"OK: {success_rate}%", fill=255)
+        draw.text((0, 16), f"CAM1: {stats['master_captures']}", fill=255)
+        draw.text((64, 16), f"FAIL: {stats['failed_responses']}", fill=255)
+        draw.text((0, 24), f"TIMEOUT: {stats['timeout_responses']}", fill=255)
+        
+        self.display.image(image)
+        self.display.show()
+    
+    def _show_session_info(self, master_system):
+        """Show session information screen"""
+        image = Image.new("1", (128, 32))
+        draw = ImageDraw.Draw(image)
+        
+        # Current time
+        current_time = datetime.datetime.now()
+        time_str = current_time.strftime("%H:%M:%S")
+        date_str = current_time.strftime("%m/%d")
+        
+        # Session info
+        session_name = master_system.mqtt_service.session_name or "NO SESSION"
+        session_short = session_name[-12:] if len(session_name) > 12 else session_name
+        
+        # Pending commands
+        pending = len(master_system.mqtt_service.pending_commands)
+        
+        # Draw session info
+        draw.text((0, 0), f"SESSION INFO", fill=255)
+        draw.text((0, 8), f"{session_short}", fill=255)
+        draw.text((0, 16), f"TIME: {time_str}", fill=255)
+        draw.text((0, 24), f"DATE: {date_str} PND: {pending}", fill=255)
+        
+        self.display.image(image)
+        self.display.show()
+    
+    def show_capture_status(self, command_id, master_success=None):
+        """Show capture status temporarily"""
+        if not self.available:
+            return
+            
+        try:
+            image = Image.new("1", (128, 32))
+            draw = ImageDraw.Draw(image)
+            
+            # Show capture info
+            draw.text((0, 0), f"CAPTURE #{command_id}", fill=255)
+            if master_success is not None:
+                master_status = "OK" if master_success else "FAIL"
+                draw.text((0, 10), f"MASTER: {master_status}", fill=255)
+            draw.text((0, 20), "Waiting slaves...", fill=255)
+            
+            self.display.image(image)
+            self.display.show()
+            
+            # Reset update timer to avoid immediate overwrite
+            self.last_update = time.time()
+            
+        except Exception as e:
+            logger.error(f"Failed to show capture status: {e}")
+    
+    def show_error_message(self, message):
+        """Show error message on display"""
+        if not self.available:
+            return
+            
+        try:
+            image = Image.new("1", (128, 32))
+            draw = ImageDraw.Draw(image)
+            
+            draw.text((0, 0), "ERROR:", fill=255)
+            # Split message to fit on display
+            words = message.split()
+            line1 = " ".join(words[:2]) if len(words) > 2 else message
+            line2 = " ".join(words[2:4]) if len(words) > 2 else ""
+            line3 = " ".join(words[4:]) if len(words) > 4 else ""
+            
+            draw.text((0, 8), line1[:21], fill=255)
+            if line2:
+                draw.text((0, 16), line2[:21], fill=255)
+            if line3:
+                draw.text((0, 24), line3[:21], fill=255)
+            
+            self.display.image(image)
+            self.display.show()
+            
+        except Exception as e:
+            logger.error(f"Failed to show error message: {e}")
+    
+    def cleanup(self):
+        """Cleanup display"""
+        try:
+            if self.available and self.display:
+                # Show shutdown message
+                image = Image.new("1", (128, 32))
+                draw = ImageDraw.Draw(image)
+                draw.text((0, 8), "SYSTEM SHUTDOWN", fill=255)
+                draw.text((0, 18), "Goodbye!", fill=255)
+                self.display.image(image)
+                self.display.show()
+                time.sleep(1)
+                
+                # Clear display
+                self.display.fill(0)
+                self.display.show()
+                logger.info("OLED display cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during OLED display cleanup: {e}")
 
 class HelmetCamera:
     def __init__(self, cam_number):

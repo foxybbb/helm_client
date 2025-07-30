@@ -21,7 +21,7 @@ import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
 from camera.factories import ConfigLoader
 from camera.utils import setup_logging
-from camera.services import MasterIMUSensor, HelmetCamera, JsonLogger
+from camera.services import MasterIMUSensor, HelmetCamera, JsonLogger, MasterOLEDDisplay
 from web_master_server import setup_master_web_server, run_master_web_server
 
 logger = logging.getLogger(__name__)
@@ -461,6 +461,13 @@ class MasterHelmetSystem:
         self.session_logger = JsonLogger(cam_number=1, config=config)
         self.session_dir = None
         
+        # OLED display functionality
+        self.oled_display = MasterOLEDDisplay()
+        
+        # Display update thread
+        self.display_thread = None
+        self.display_running = False
+        
         self.running = False
         
     def start(self):
@@ -484,6 +491,10 @@ class MasterHelmetSystem:
         
         logger.info(f"Master system started - Session: {session_name}")
         logger.info(f"Master session directory: {self.session_dir}")
+        
+        # Start OLED display updates
+        self._start_display_updates()
+        
         self.running = True
     
     def _setup_imu_logging(self):
@@ -523,6 +534,28 @@ class MasterHelmetSystem:
             
         except Exception as e:
             logger.error(f"Failed to save IMU data: {e}")
+    
+    def _start_display_updates(self):
+        """Start background thread for OLED display updates"""
+        if not self.oled_display.available:
+            logger.info("OLED display not available, skipping display updates")
+            return
+            
+        self.display_running = True
+        
+        def display_update_loop():
+            """Background thread for updating OLED display"""
+            while self.display_running and self.running:
+                try:
+                    self.oled_display.update_display(self)
+                    time.sleep(1)  # Update every second, display manages its own timing
+                except Exception as e:
+                    logger.error(f"Error in display update loop: {e}")
+                    time.sleep(5)  # Wait longer on error
+        
+        self.display_thread = threading.Thread(target=display_update_loop, daemon=True)
+        self.display_thread.start()
+        logger.info("OLED display update thread started")
     
     def capture_sequence(self, count=1, interval_seconds=5):
         """Execute a sequence of synchronized captures"""
@@ -576,8 +609,16 @@ class MasterHelmetSystem:
             
             if command_id:
                 logger.info(f"Capture command {command_id} sent to slaves, master capture: {'success' if master_photo_success else 'failed'}")
+                
+                # Show capture status on OLED display
+                if self.oled_display.available:
+                    self.oled_display.show_capture_status(command_id, master_photo_success)
             else:
                 logger.error(f"Failed to send capture command for capture {i+1}")
+                
+                # Show error on OLED display
+                if self.oled_display.available:
+                    self.oled_display.show_error_message(f"Failed to send command {i+1}")
             
             # Send polling message periodically
             self.mqtt_service.send_poll_message()
@@ -593,11 +634,20 @@ class MasterHelmetSystem:
         """Cleanup master system"""
         self.running = False
         
+        # Stop display updates
+        self.display_running = False
+        if self.display_thread and self.display_thread.is_alive():
+            self.display_thread.join(timeout=2)
+        
         # Cleanup camera and session
         if hasattr(self, 'master_camera'):
             self.master_camera.cleanup()
         if hasattr(self, 'session_logger'):
             self.session_logger.end_session()
+        
+        # Cleanup OLED display
+        if hasattr(self, 'oled_display'):
+            self.oled_display.cleanup()
         
         # Cleanup other components
         self.gpio_generator.cleanup()

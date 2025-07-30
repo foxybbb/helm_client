@@ -57,6 +57,7 @@ def api_master_status():
             "imu_available": master_system.imu_sensor.available if hasattr(master_system, 'imu_sensor') else False,
             "session_name": master_system.mqtt_service.session_name if hasattr(master_system, 'mqtt_service') else None,
             "session_directory": str(master_system.session_dir) if hasattr(master_system, 'session_dir') and master_system.session_dir else None,
+            "display_available": master_system.oled_display.available if hasattr(master_system, 'oled_display') else False,
             "statistics": mqtt_stats
         })
     
@@ -322,6 +323,10 @@ def create_master_templates():
                     <div class="status-item ${masterStatus.imu_available ? 'status-online' : 'status-warning'}">
                         <strong>IMU Sensor</strong><br>
                         ${masterStatus.imu_available ? 'Available' : 'Not Available'}
+                    </div>
+                    <div class="status-item ${masterStatus.display_available ? 'status-online' : 'status-warning'}">
+                        <strong>OLED Display</strong><br>
+                        ${masterStatus.display_available ? 'Available' : 'Not Available'}
                     </div>
                     <div class="status-item ${masterStatus.pending_commands > 0 ? 'status-warning' : 'status-online'}">
                         <strong>Pending Commands</strong><br>
