@@ -45,12 +45,19 @@ def api_master_status():
     }
     
     if master_system and config:
+        # Get enhanced statistics
+        mqtt_stats = master_system.mqtt_service.get_stats() if hasattr(master_system, 'mqtt_service') else {}
+        
         status.update({
             "master_id": config.get("master_id", "unknown"),
             "mqtt_connected": master_system.mqtt_service.connected if hasattr(master_system, 'mqtt_service') else False,
             "configured_slaves": config.get("slaves", []),
             "pending_commands": len(master_system.mqtt_service.pending_commands) if hasattr(master_system, 'mqtt_service') else 0,
-            "running": master_system.running if hasattr(master_system, 'running') else False
+            "running": master_system.running if hasattr(master_system, 'running') else False,
+            "imu_available": master_system.imu_sensor.available if hasattr(master_system, 'imu_sensor') else False,
+            "session_name": master_system.mqtt_service.session_name if hasattr(master_system, 'mqtt_service') else None,
+            "session_directory": str(master_system.session_dir) if hasattr(master_system, 'session_dir') and master_system.session_dir else None,
+            "statistics": mqtt_stats
         })
     
     return jsonify(status)
@@ -63,27 +70,48 @@ def api_slaves_status():
     slaves = []
     
     if config:
+        # Get board statistics from master system
+        board_stats = {}
+        if master_system and hasattr(master_system, 'mqtt_service'):
+            board_stats = master_system.mqtt_service.get_board_stats()
+        
         for slave_id in config.get("slaves", []):
             slave_info = {
                 "slave_id": slave_id,
                 "status": "unknown",
                 "last_seen": None,
                 "last_response": None,
-                "response_count": 0
+                "response_count": 0,
+                "successful_responses": 0,
+                "failed_responses": 0,
+                "timeout_responses": 0,
+                "avg_response_time_ms": 0,
+                "last_response_time_ms": 0
             }
             
-            # Try to determine slave status from recent responses
-            if master_system and hasattr(master_system, 'mqtt_service'):
-                # This would need to be implemented in the master system
-                # For now, we'll provide basic info
-                slave_info["status"] = "configured"
+            # Get detailed statistics if available
+            if slave_id in board_stats:
+                board_stat = board_stats[slave_id]
+                slave_info.update({
+                    "status": board_stat["status"],
+                    "last_seen": board_stat["last_seen"],
+                    "response_count": board_stat["response_count"],
+                    "successful_responses": board_stat["successful_responses"],
+                    "failed_responses": board_stat["failed_responses"],
+                    "timeout_responses": board_stat["timeout_responses"],
+                    "avg_response_time_ms": round(board_stat["avg_response_time_ms"], 1),
+                    "last_response_time_ms": round(board_stat["last_response_time_ms"], 1),
+                    "total_commands": board_stat["total_commands"]
+                })
             
             slaves.append(slave_info)
     
     return jsonify({
         "slaves": slaves,
         "total_configured": len(slaves),
-        "total_active": len([s for s in slaves if s["status"] in ["online", "responding"]])
+        "total_online": len([s for s in slaves if s["status"] == "online"]),
+        "total_timeout": len([s for s in slaves if s["status"] == "timeout"]),
+        "total_error": len([s for s in slaves if s["status"] == "error"])
     })
 
 @app.route('/api/master/command', methods=['POST'])
@@ -121,6 +149,20 @@ def api_send_command():
         
     except Exception as e:
         return jsonify({"error": f"Failed to start capture: {e}"}), 500
+
+@app.route('/api/master/statistics')
+def api_master_statistics():
+    """API endpoint for detailed master statistics"""
+    global master_system
+    
+    if not master_system or not hasattr(master_system, 'mqtt_service'):
+        return jsonify({"error": "Master system not available"}), 503
+    
+    try:
+        detailed_status = master_system.mqtt_service.get_detailed_status()
+        return jsonify(detailed_status)
+    except Exception as e:
+        return jsonify({"error": f"Failed to get statistics: {e}"}), 500
 
 @app.route('/api/master/logs')
 def api_master_logs():
@@ -174,7 +216,15 @@ def create_master_templates():
         .slave-card { border: 1px solid #ddd; border-radius: 8px; padding: 15px; }
         .slave-online { border-color: #28a745; background-color: #f8fff9; }
         .slave-offline { border-color: #dc3545; background-color: #fff8f8; }
-        .slave-unknown { border-color: #ffc107; background-color: #fffdf7; }
+        .slave-timeout { border-color: #ffc107; background-color: #fffdf7; }
+        .slave-error { border-color: #dc3545; background-color: #fff8f8; }
+        .slave-unknown { border-color: #6c757d; background-color: #f8f9fa; }
+        .status-badge { padding: 2px 8px; border-radius: 4px; color: white; font-size: 12px; font-weight: bold; }
+        .status-badge.online { background-color: #28a745; }
+        .status-badge.offline { background-color: #dc3545; }
+        .status-badge.timeout { background-color: #ffc107; color: black; }
+        .status-badge.error { background-color: #dc3545; }
+        .status-badge.unknown { background-color: #6c757d; }
         .control-panel { background: #e9ecef; padding: 20px; border-radius: 8px; margin: 20px 0; }
         .btn { padding: 10px 20px; margin: 5px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
         .btn-primary { background: #007bff; color: white; }
@@ -219,6 +269,13 @@ def create_master_templates():
         </div>
         
         <div class="card">
+            <h2>Statistics Summary</h2>
+            <div id="statisticsStatus" class="status-grid">
+                <!-- Will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <div class="card">
             <h2>Connected Slaves</h2>
             <div id="slavesStatus" class="slaves-grid">
                 <!-- Will be populated by JavaScript -->
@@ -248,6 +305,7 @@ def create_master_templates():
             // Master status
             const masterStatus = await fetchJSON('/api/master/status');
             if (masterStatus) {
+                const stats = masterStatus.statistics || {};
                 document.getElementById('masterStatus').innerHTML = `
                     <div class="status-item ${masterStatus.mqtt_connected ? 'status-online' : 'status-offline'}">
                         <strong>MQTT Connection</strong><br>
@@ -258,20 +316,63 @@ def create_master_templates():
                         ${masterStatus.master_id || 'Unknown'}
                     </div>
                     <div class="status-item status-online">
-                        <strong>Uptime</strong><br>
-                        ${Math.floor(masterStatus.uptime_seconds / 60)} minutes
+                        <strong>Session</strong><br>
+                        ${masterStatus.session_name || 'No active session'}
+                    </div>
+                    <div class="status-item ${masterStatus.imu_available ? 'status-online' : 'status-warning'}">
+                        <strong>IMU Sensor</strong><br>
+                        ${masterStatus.imu_available ? 'Available' : 'Not Available'}
                     </div>
                     <div class="status-item ${masterStatus.pending_commands > 0 ? 'status-warning' : 'status-online'}">
                         <strong>Pending Commands</strong><br>
                         ${masterStatus.pending_commands || 0}
                     </div>
                     <div class="status-item status-online">
-                        <strong>Total Commands</strong><br>
-                        ${masterStatus.master.total_commands_sent || 0}
+                        <strong>Commands Sent</strong><br>
+                        ${stats.total_commands || 0}
+                    </div>
+                    <div class="status-item status-online">
+                        <strong>Master Photos</strong><br>
+                        ${stats.master_captures || 0} / ${(stats.master_captures + stats.master_capture_failures) || 0}
                     </div>
                     <div class="status-item ${masterStatus.running ? 'status-online' : 'status-offline'}">
                         <strong>System Status</strong><br>
                         ${masterStatus.running ? 'Running' : 'Stopped'}
+                    </div>
+                `;
+            }
+            
+            // Statistics summary
+            const statisticsData = await fetchJSON('/api/master/statistics');
+            if (statisticsData && statisticsData.global_stats) {
+                const gStats = statisticsData.global_stats;
+                const totalBoards = Object.keys(statisticsData.board_stats || {}).length;
+                const onlineBoards = Object.values(statisticsData.board_stats || {}).filter(s => s.status === 'online').length;
+                
+                document.getElementById('statisticsStatus').innerHTML = `
+                    <div class="status-item status-online">
+                        <strong>Total Commands</strong><br>
+                        ${gStats.total_commands || 0}
+                    </div>
+                    <div class="status-item ${gStats.successful_responses > 0 ? 'status-online' : 'status-warning'}">
+                        <strong>Success Rate</strong><br>
+                        ${gStats.total_commands > 0 ? Math.round((gStats.successful_responses / gStats.total_commands) * 100) : 0}%
+                    </div>
+                    <div class="status-item ${gStats.failed_responses > 0 ? 'status-warning' : 'status-online'}">
+                        <strong>Failures</strong><br>
+                        ${gStats.failed_responses || 0}
+                    </div>
+                    <div class="status-item ${gStats.timeout_responses > 0 ? 'status-warning' : 'status-online'}">
+                        <strong>Timeouts</strong><br>
+                        ${gStats.timeout_responses || 0}
+                    </div>
+                    <div class="status-item status-online">
+                        <strong>Master Photos</strong><br>
+                        ${gStats.master_captures || 0}
+                    </div>
+                    <div class="status-item ${onlineBoards === totalBoards ? 'status-online' : 'status-warning'}">
+                        <strong>Boards Online</strong><br>
+                        ${onlineBoards}/${totalBoards}
                     </div>
                 `;
             }
@@ -282,9 +383,13 @@ def create_master_templates():
                 const slavesHtml = slavesStatus.slaves.map(slave => `
                     <div class="slave-card slave-${slave.status}">
                         <h3>${slave.slave_id}</h3>
-                        <p><strong>Status:</strong> ${slave.status}</p>
-                        <p><strong>Responses:</strong> ${slave.response_count}</p>
-                        ${slave.last_seen ? `<p><strong>Last Seen:</strong> ${new Date(slave.last_seen).toLocaleString()}</p>` : ''}
+                        <p><strong>Status:</strong> <span class="status-badge ${slave.status}">${slave.status.toUpperCase()}</span></p>
+                        <p><strong>Commands:</strong> ${slave.total_commands || 0}</p>
+                        <p><strong>Success Rate:</strong> ${slave.total_commands > 0 ? Math.round((slave.successful_responses / slave.total_commands) * 100) : 0}%</p>
+                        <p><strong>Failures:</strong> ${slave.failed_responses || 0}</p>
+                        <p><strong>Timeouts:</strong> ${slave.timeout_responses || 0}</p>
+                        <p><strong>Avg Response:</strong> ${slave.avg_response_time_ms || 0}ms</p>
+                        ${slave.last_seen ? `<p><strong>Last Seen:</strong> ${new Date(slave.last_seen).toLocaleString()}</p>` : '<p><strong>Last Seen:</strong> Never</p>'}
                         <button onclick="viewSlaveDetails('${slave.slave_id}')" class="btn btn-primary">View Details</button>
                     </div>
                 `).join('');

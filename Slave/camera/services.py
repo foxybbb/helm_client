@@ -102,7 +102,13 @@ class MQTTCameraService:
     def _process_command(self, command):
         """Process camera capture command"""
         command_id = command["id"]
+        command_type = command.get("type", "capture")
         start_time_ns = time.time_ns()
+        
+        # Handle polling/heartbeat messages
+        if command_type == "poll":
+            self._handle_poll_command(command_id, start_time_ns)
+            return
         
         # Update status
         self.last_capture_status.update({
@@ -169,6 +175,19 @@ class MQTTCameraService:
             logger.error(f"Command {command_id} failed with exception: {e}")
     
     # _save_imu_data method removed - only master board has IMU access
+    
+    def _handle_poll_command(self, command_id, start_time_ns):
+        """Handle polling/heartbeat command from master"""
+        end_time_ns = time.time_ns()
+        
+        try:
+            logger.debug(f"Responding to poll command {command_id}")
+            self._send_response(command_id, "ok", start_time_ns, end_time_ns, 
+                              filename="", jitter_us=0, error="")
+        except Exception as e:
+            logger.error(f"Failed to respond to poll command {command_id}: {e}")
+            self._send_response(command_id, "fail", start_time_ns, end_time_ns,
+                              error=f"poll_error: {e}")
     
     def _send_response(self, command_id, status, started_ns=None, finished_ns=None, 
                       filename="", jitter_us=0, error=""):
