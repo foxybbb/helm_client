@@ -9,8 +9,121 @@ import atexit
 from pathlib import Path
 import RPi.GPIO as GPIO
 from picamera2 import Picamera2
+import paho.mqtt.client as mqtt
+
+# IMU sensor support for master board only
+try:
+    import board
+    import busio
+    import adafruit_bno055
+    IMU_AVAILABLE = True
+except ImportError:
+    IMU_AVAILABLE = False
+    logging.warning("IMU libraries not available - running without IMU support")
 
 logger = logging.getLogger(__name__)
+
+class MasterIMUSensor:
+    """IMU sensor handler for BNO055 - Master board only"""
+    
+    def __init__(self):
+        self.sensor = None
+        self.available = False
+        self._setup_imu()
+    
+    def _setup_imu(self):
+        """Initialize IMU sensor"""
+        if not IMU_AVAILABLE:
+            logger.warning("IMU libraries not installed")
+            return
+        
+        try:
+            # Initialize I2C and sensor
+            i2c = busio.I2C(board.SCL, board.SDA)
+            self.sensor = adafruit_bno055.BNO055_I2C(i2c)
+            
+            # Test reading
+            _ = self.sensor.temperature
+            
+            self.available = True
+            logger.info("Master IMU sensor (BNO055) initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize master IMU sensor: {e}")
+            self.available = False
+    
+    def read_data(self):
+        """Read comprehensive IMU data"""
+        if not self.available:
+            return {
+                "available": False,
+                "error": "IMU sensor not available"
+            }
+        
+        try:
+            # Read all sensor data
+            data = {
+                "available": True,
+                "timestamp_ns": time.time_ns(),
+                "temperature": self.sensor.temperature,
+                "acceleration": {
+                    "x": self.sensor.acceleration[0] if self.sensor.acceleration[0] is not None else 0.0,
+                    "y": self.sensor.acceleration[1] if self.sensor.acceleration[1] is not None else 0.0,
+                    "z": self.sensor.acceleration[2] if self.sensor.acceleration[2] is not None else 0.0,
+                    "unit": "m/s²"
+                },
+                "magnetic": {
+                    "x": self.sensor.magnetic[0] if self.sensor.magnetic[0] is not None else 0.0,
+                    "y": self.sensor.magnetic[1] if self.sensor.magnetic[1] is not None else 0.0,
+                    "z": self.sensor.magnetic[2] if self.sensor.magnetic[2] is not None else 0.0,
+                    "unit": "µT"
+                },
+                "gyroscope": {
+                    "x": self.sensor.gyro[0] if self.sensor.gyro[0] is not None else 0.0,
+                    "y": self.sensor.gyro[1] if self.sensor.gyro[1] is not None else 0.0,
+                    "z": self.sensor.gyro[2] if self.sensor.gyro[2] is not None else 0.0,
+                    "unit": "rad/s"
+                },
+                "euler": {
+                    "heading": self.sensor.euler[0] if self.sensor.euler[0] is not None else 0.0,
+                    "roll": self.sensor.euler[1] if self.sensor.euler[1] is not None else 0.0,
+                    "pitch": self.sensor.euler[2] if self.sensor.euler[2] is not None else 0.0,
+                    "unit": "degrees"
+                },
+                "quaternion": {
+                    "w": self.sensor.quaternion[0] if self.sensor.quaternion[0] is not None else 0.0,
+                    "x": self.sensor.quaternion[1] if self.sensor.quaternion[1] is not None else 0.0,
+                    "y": self.sensor.quaternion[2] if self.sensor.quaternion[2] is not None else 0.0,
+                    "z": self.sensor.quaternion[3] if self.sensor.quaternion[3] is not None else 0.0
+                },
+                "linear_acceleration": {
+                    "x": self.sensor.linear_acceleration[0] if self.sensor.linear_acceleration[0] is not None else 0.0,
+                    "y": self.sensor.linear_acceleration[1] if self.sensor.linear_acceleration[1] is not None else 0.0,
+                    "z": self.sensor.linear_acceleration[2] if self.sensor.linear_acceleration[2] is not None else 0.0,
+                    "unit": "m/s²"
+                },
+                "gravity": {
+                    "x": self.sensor.gravity[0] if self.sensor.gravity[0] is not None else 0.0,
+                    "y": self.sensor.gravity[1] if self.sensor.gravity[1] is not None else 0.0,
+                    "z": self.sensor.gravity[2] if self.sensor.gravity[2] is not None else 0.0,
+                    "unit": "m/s²"
+                },
+                "calibration_status": {
+                    "system": self.sensor.calibration_status[0],
+                    "gyroscope": self.sensor.calibration_status[1],
+                    "accelerometer": self.sensor.calibration_status[2],
+                    "magnetometer": self.sensor.calibration_status[3]
+                }
+            }
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"Failed to read master IMU data: {e}")
+            return {
+                "available": False,
+                "error": f"IMU read error: {e}"
+            }
 
 class HelmetCamera:
     def __init__(self, cam_number):

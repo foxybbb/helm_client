@@ -11,119 +11,13 @@ import RPi.GPIO as GPIO
 from picamera2 import Picamera2
 import paho.mqtt.client as mqtt
 
-# IMU sensor support
-try:
-    import board
-    import busio
-    import adafruit_bno055
-    IMU_AVAILABLE = True
-except ImportError:
-    IMU_AVAILABLE = False
-    logging.warning("IMU libraries not available - running without IMU support")
+# IMU sensor support removed - only master board has IMU access
+# IMU functionality has been moved to master-only architecture
 
 logger = logging.getLogger(__name__)
 
-class IMUSensor:
-    """IMU sensor handler for BNO055"""
-    
-    def __init__(self):
-        self.sensor = None
-        self.available = False
-        self._setup_imu()
-    
-    def _setup_imu(self):
-        """Initialize IMU sensor"""
-        if not IMU_AVAILABLE:
-            logger.warning("IMU libraries not installed")
-            return
-        
-        try:
-            # Initialize I2C and sensor
-            i2c = busio.I2C(board.SCL, board.SDA)
-            self.sensor = adafruit_bno055.BNO055_I2C(i2c)
-            
-            # Test reading
-            _ = self.sensor.temperature
-            
-            self.available = True
-            logger.info("IMU sensor (BNO055) initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize IMU sensor: {e}")
-            self.available = False
-    
-    def read_data(self):
-        """Read comprehensive IMU data"""
-        if not self.available:
-            return {
-                "available": False,
-                "error": "IMU sensor not available"
-            }
-        
-        try:
-            # Read all sensor data
-            data = {
-                "available": True,
-                "timestamp_ns": time.time_ns(),
-                "temperature": self.sensor.temperature,
-                "acceleration": {
-                    "x": self.sensor.acceleration[0] if self.sensor.acceleration[0] is not None else 0.0,
-                    "y": self.sensor.acceleration[1] if self.sensor.acceleration[1] is not None else 0.0,
-                    "z": self.sensor.acceleration[2] if self.sensor.acceleration[2] is not None else 0.0,
-                    "unit": "m/s²"
-                },
-                "magnetic": {
-                    "x": self.sensor.magnetic[0] if self.sensor.magnetic[0] is not None else 0.0,
-                    "y": self.sensor.magnetic[1] if self.sensor.magnetic[1] is not None else 0.0,
-                    "z": self.sensor.magnetic[2] if self.sensor.magnetic[2] is not None else 0.0,
-                    "unit": "µT"
-                },
-                "gyroscope": {
-                    "x": self.sensor.gyro[0] if self.sensor.gyro[0] is not None else 0.0,
-                    "y": self.sensor.gyro[1] if self.sensor.gyro[1] is not None else 0.0,
-                    "z": self.sensor.gyro[2] if self.sensor.gyro[2] is not None else 0.0,
-                    "unit": "rad/s"
-                },
-                "euler": {
-                    "heading": self.sensor.euler[0] if self.sensor.euler[0] is not None else 0.0,
-                    "roll": self.sensor.euler[1] if self.sensor.euler[1] is not None else 0.0,
-                    "pitch": self.sensor.euler[2] if self.sensor.euler[2] is not None else 0.0,
-                    "unit": "degrees"
-                },
-                "quaternion": {
-                    "w": self.sensor.quaternion[0] if self.sensor.quaternion[0] is not None else 0.0,
-                    "x": self.sensor.quaternion[1] if self.sensor.quaternion[1] is not None else 0.0,
-                    "y": self.sensor.quaternion[2] if self.sensor.quaternion[2] is not None else 0.0,
-                    "z": self.sensor.quaternion[3] if self.sensor.quaternion[3] is not None else 0.0
-                },
-                "linear_acceleration": {
-                    "x": self.sensor.linear_acceleration[0] if self.sensor.linear_acceleration[0] is not None else 0.0,
-                    "y": self.sensor.linear_acceleration[1] if self.sensor.linear_acceleration[1] is not None else 0.0,
-                    "z": self.sensor.linear_acceleration[2] if self.sensor.linear_acceleration[2] is not None else 0.0,
-                    "unit": "m/s²"
-                },
-                "gravity": {
-                    "x": self.sensor.gravity[0] if self.sensor.gravity[0] is not None else 0.0,
-                    "y": self.sensor.gravity[1] if self.sensor.gravity[1] is not None else 0.0,
-                    "z": self.sensor.gravity[2] if self.sensor.gravity[2] is not None else 0.0,
-                    "unit": "m/s²"
-                },
-                "calibration_status": {
-                    "system": self.sensor.calibration_status[0],
-                    "gyroscope": self.sensor.calibration_status[1],
-                    "accelerometer": self.sensor.calibration_status[2],
-                    "magnetometer": self.sensor.calibration_status[3]
-                }
-            }
-            
-            return data
-            
-        except Exception as e:
-            logger.error(f"Failed to read IMU data: {e}")
-            return {
-                "available": False,
-                "error": f"IMU read error: {e}"
-            }
+# IMU sensor class removed - only master board has IMU access
+# All IMU functionality moved to master system
 
 class MQTTCameraService:
     """MQTT service for handling camera commands from master"""
@@ -135,8 +29,7 @@ class MQTTCameraService:
         self.mqtt_config = config["mqtt"]
         self.client = mqtt.Client(client_id=self.client_id)
         
-        # Initialize IMU sensor
-        self.imu = IMUSensor()
+        # IMU sensor removed - only master board has IMU access
         
         # Setup callbacks
         self.client.on_connect = self._on_connect
@@ -229,8 +122,7 @@ class MQTTCameraService:
             
             logger.info(f"Processing capture command {command_id}")
             
-            # Read IMU data before capture
-            imu_data = self.imu.read_data()
+                    # IMU data removed - only master board has IMU access
             
             # Create session directory based on notes
             notes = command["notes"]
@@ -245,8 +137,7 @@ class MQTTCameraService:
             jitter_us = (start_time_ns - command["t_utc_ns"]) // 1000  # Convert to microseconds
             
             if photo_path:
-                # Save IMU data to companion JSON file
-                self._save_imu_data(photo_path, imu_data, command, start_time_ns, end_time_ns)
+                            # IMU data saving removed - only master has IMU access
                 
                 # Update status
                 self.last_capture_status.update({
@@ -256,57 +147,31 @@ class MQTTCameraService:
                 })
                 
                 self._send_response(command_id, "ok", start_time_ns, end_time_ns, 
-                                  filename, jitter_us, imu_data=imu_data)
+                                  filename, jitter_us)
                 logger.info(f"Command {command_id} completed successfully: {filename}")
             else:
                 self.last_capture_status["status"] = "failed"
                 self._send_response(command_id, "fail", start_time_ns, end_time_ns,
-                                  error="Camera capture failed", imu_data=imu_data)
+                                  error="Camera capture failed")
                 logger.error(f"Command {command_id} failed: camera capture error")
                 
         except Exception as e:
             end_time_ns = time.time_ns()
-            imu_data = self.imu.read_data()  # Try to get IMU data even on failure
+            # IMU data removed - only master has IMU access
             
             self.last_capture_status.update({
-                "status": "error",
-                "imu_data": imu_data
+                "status": "error"
+                # IMU data removed - slave no longer has IMU
             })
             
             self._send_response(command_id, "fail", start_time_ns, end_time_ns,
-                              error=str(e), imu_data=imu_data)
+                              error=str(e))
             logger.error(f"Command {command_id} failed with exception: {e}")
     
-    def _save_imu_data(self, photo_path, imu_data, command, start_time_ns, end_time_ns):
-        """Save IMU data to companion JSON file"""
-        try:
-            photo_path = Path(photo_path)
-            imu_file_path = photo_path.with_suffix('.json')
-            
-            # Create comprehensive metadata
-            metadata = {
-                "photo": {
-                    "filename": photo_path.name,
-                    "capture_time_ns": start_time_ns,
-                    "completion_time_ns": end_time_ns,
-                    "processing_duration_ms": (end_time_ns - start_time_ns) / 1_000_000
-                },
-                "command": command,
-                "client_id": self.client_id,
-                "imu": imu_data
-            }
-            
-            # Save to JSON file
-            with open(imu_file_path, 'w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            logger.debug(f"IMU metadata saved to: {imu_file_path}")
-            
-        except Exception as e:
-            logger.error(f"Failed to save IMU metadata: {e}")
+    # _save_imu_data method removed - only master board has IMU access
     
     def _send_response(self, command_id, status, started_ns=None, finished_ns=None, 
-                      filename="", jitter_us=0, error="", imu_data=None):
+                      filename="", jitter_us=0, error=""):
         """Send response back to master"""
         if started_ns is None:
             started_ns = time.time_ns()
@@ -324,9 +189,7 @@ class MQTTCameraService:
             "error": error
         }
         
-        # Add IMU data to response if available
-        if imu_data:
-            response["imu"] = imu_data
+        # IMU data removed - only master board has IMU access
         
         try:
             topic = self.mqtt_config["topic_responses"]
@@ -347,9 +210,9 @@ class MQTTCameraService:
             "client_id": self.client_id,
             "mqtt_connected": self.connected,
             "camera_available": self.camera_service._camera_initialized if hasattr(self.camera_service, '_camera_initialized') else False,
-            "imu_available": self.imu.available,
+            "imu_available": False,  # IMU removed - only master has IMU access
             "last_capture": self.last_capture_status,
-            "current_imu": self.imu.read_data() if self.imu.available else None
+            "current_imu": None  # IMU removed - only master has IMU access
         }
     
     def start(self):

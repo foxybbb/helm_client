@@ -1,6 +1,55 @@
-# Smart Helmet Camera - Master System
+# Master Helmet Camera System
 
-This is the master system that coordinates synchronized photo capture across multiple helmet-mounted cameras via MQTT communication.
+Coordinate multiple Raspberry Pi helmet cameras with synchronized capture commands via MQTT.
+**Only the master board has access to the IMU sensor** - providing centralized orientation data for all captures.
+
+## Features
+
+- **GPIO Pulse Generation**: Hardware-level trigger for precise timing
+- **MQTT Command Broadcasting**: Send synchronized commands to multiple slave cameras
+- **Master-Only IMU Integration**: BNO055 sensor data included in all capture commands
+- **Response Coordination**: Collect and track responses from all connected slaves
+- **Web Interface**: Monitor status and control captures via web dashboard
+- **Session Management**: Organized photo storage with session-based directories
+
+## Architecture
+
+### Master-Only IMU Design
+- **Centralized IMU**: Only master board connects to BNO055 IMU sensor
+- **IMU Data Broadcasting**: Master includes its IMU readings in every capture command
+- **Consistent Reference Frame**: All photos captured with the same orientation data
+- **Simplified Slaves**: Slave boards focus solely on camera operations
+
+### Communication Flow
+```
+Master IMU Reading → Command with IMU Data → MQTT → All Slaves → Photo Capture
+```
+
+## Installation
+
+### Hardware Requirements
+- Raspberry Pi 4 (Master Board)
+- BNO055 IMU sensor connected to master board I2C
+- MQTT broker (can run on master or separate device)
+- Network connection to slave helmet cameras
+
+### Software Setup
+```bash
+# Clone the repository
+git clone <repo_url>
+cd helmet_client/Master
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Enable I2C for IMU sensor
+sudo raspi-config
+# Navigate to: Interface Options → I2C → Enable
+
+# Configure MQTT and slaves
+cp master_config.json.example master_config.json
+nano master_config.json
+```
 
 ## Quick Start
 
@@ -31,14 +80,6 @@ This is the master system that coordinates synchronized photo capture across mul
    ```bash
    python master_helmet_system.py
    ```
-
-## Features
-
-- **GPIO Pulse Generation**: Hardware synchronization signals
-- **MQTT Command Broadcasting**: Sends capture commands to all slaves
-- **Response Collection**: Tracks and logs responses from all helmet cameras
-- **Interactive Interface**: Easy-to-use command interface
-- **Session Management**: Organized photo sessions with timestamps
 
 ## Usage Commands
 
@@ -84,7 +125,18 @@ Edit `master_config.json` to configure:
   "t_utc_ns": 1753828805123456789,
   "exposure_us": 8000,
   "timeout_ms": 5000,
-  "notes": "session_20250729_01"
+  "notes": "session_20250729_01",
+  "master_imu": {
+    "available": true,
+    "timestamp_ns": 1753828805123456789,
+    "temperature": 24.5,
+    "acceleration": {"x": 0.1, "y": 0.2, "z": 9.8, "unit": "m/s²"},
+    "magnetic": {"x": 25.3, "y": -15.7, "z": 48.1, "unit": "µT"},
+    "gyroscope": {"x": 0.01, "y": -0.02, "z": 0.0, "unit": "rad/s"},
+    "euler": {"heading": 45.2, "roll": 1.3, "pitch": -2.1, "unit": "degrees"},
+    "quaternion": {"w": 0.999, "x": 0.001, "y": -0.002, "z": 0.045},
+    "calibration_status": {"system": 3, "gyroscope": 3, "accelerometer": 3, "magnetometer": 3}
+  }
 }
 ```
 
@@ -101,6 +153,8 @@ Edit `master_config.json` to configure:
   "error": ""
 }
 ```
+
+**Note**: Slaves no longer include IMU data in responses since only the master board has IMU access.
 
 ## Files
 

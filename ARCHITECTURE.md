@@ -98,6 +98,22 @@ The system uses **picamera2** for optimal camera performance:
 - **File Validation**: Checks photo file size to ensure successful capture
 - **Context Manager Support**: Proper resource cleanup using `with` statements
 - **Thread-Safe**: Safe to call from interrupt handlers
+
+## 🧭 IMU Sensor Architecture
+
+### Master-Only IMU Access
+The system implements a **centralized IMU architecture**:
+
+- **Master Board Only**: Only the master board has physical access to the BNO055 IMU sensor
+- **Centralized Data**: Master reads IMU data and includes it in commands sent to slaves
+- **Consistent Orientation**: All captured photos have the same IMU reference frame
+- **Simplified Slave Design**: Slave boards focus solely on camera functionality
+
+### IMU Features
+- **BNO055 Sensor**: 9-axis absolute orientation sensor
+- **Comprehensive Data**: Acceleration, magnetic field, gyroscope, euler angles, quaternions
+- **Calibration Management**: Automatic calibration and persistence
+- **Command Integration**: IMU data included in every capture command
 - **Configurable Quality**: Easy to adjust resolution and compression settings
 
 ### Capture Process

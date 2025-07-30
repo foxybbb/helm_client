@@ -20,17 +20,19 @@ import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
 from camera.factories import ConfigLoader
 from camera.utils import setup_logging
+from camera.services import MasterIMUSensor
 from web_master_server import setup_master_web_server, run_master_web_server
 
 
 class MQTTMasterService:
     """MQTT service for master to communicate with slaves"""
     
-    def __init__(self, config):
+    def __init__(self, config, imu_sensor=None):
         self.config = config
         self.master_id = config["master_id"]
         self.mqtt_config = config["mqtt"]
         self.slaves = config["slaves"]
+        self.imu_sensor = imu_sensor  # Master's IMU sensor reference
         
         # MQTT client
         self.client = mqtt.Client(client_id=self.master_id)
@@ -119,12 +121,7 @@ class MQTTMasterService:
             
             logger.info(f"Command {command_id}: {client_id} responded with {status}")
             
-            # Log IMU data if available
-            if "imu" in response and response["imu"].get("available", False):
-                imu = response["imu"]
-                logger.info(f"  IMU: T={imu.get('temperature', 0)}°C, "
-                          f"Accel=({imu['acceleration']['x']:.1f}, {imu['acceleration']['y']:.1f}, {imu['acceleration']['z']:.1f}), "
-                          f"Euler=({imu['euler']['heading']:.1f}°, {imu['euler']['roll']:.1f}°, {imu['euler']['pitch']:.1f}°)")
+            # Note: IMU data is no longer expected from slaves (master-only IMU access)
             
             # Check if all slaves have responded
             if not command_data["slaves_waiting"]:
@@ -198,6 +195,15 @@ class MQTTMasterService:
             "timeout_ms": timeout_ms,
             "notes": notes
         }
+        
+        # Add master's IMU data to command (master-only IMU access)
+        if self.imu_sensor and self.imu_sensor.available:
+            master_imu_data = self.imu_sensor.read_data()
+            command["master_imu"] = master_imu_data
+            logger.info(f"Including master IMU data in command {command_id}")
+        else:
+            command["master_imu"] = {"available": False, "error": "Master IMU not available"}
+            logger.warning(f"Master IMU not available for command {command_id}")
         
         # Track pending command
         with self.response_lock:
@@ -300,7 +306,8 @@ class MasterHelmetSystem:
     
     def __init__(self, config):
         self.config = config
-        self.mqtt_service = MQTTMasterService(config)
+        self.imu_sensor = MasterIMUSensor()  # Master-only IMU access
+        self.mqtt_service = MQTTMasterService(config, self.imu_sensor)
         self.gpio_generator = GPIOPulseGenerator(config)
         self.running = False
         
