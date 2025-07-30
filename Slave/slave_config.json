@@ -4,8 +4,8 @@
   "startup_delay": 5,
   "min_high_duration": 60,
   "photo_base_dir": "/home/rpi",
-  "wifi_ssid": "DackerStation",
-  "wifi_password": "Helmet1234",
+  "wifi_ssid": "TSI2024",
+  "wifi_password": "TSIRIGA2024",
   "log_dir": "~/helmet_camera_logs",
   "mqtt": {
     "broker_host": "192.168.1.144",

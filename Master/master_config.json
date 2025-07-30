@@ -13,7 +13,7 @@
   "wifi_ssid": "TSI2024",
   "wifi_password": "TSIRIGA2024",
   "mqtt": {
-    "broker_host": "192.168.1.144",
+    "broker_host": "localhost",
     "broker_port": 1883,
     "topic_commands": "helmet/commands",
     "topic_responses": "helmet/responses",
@@ -21,8 +21,11 @@
     "qos": 1
   },
   "slaves": [
-    "rpihelmet1",
-    "rpihelmet2", 
-    "rpihelmet3"
+    "rpihelmet2",
+    "rpihelmet3", 
+    "rpihelmet4",
+    "rpihelmet5",
+    "rpihelmet6",
+    "rpihelmet7"
   ]
 } 

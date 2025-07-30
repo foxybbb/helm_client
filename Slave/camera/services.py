@@ -143,7 +143,7 @@ class MQTTCameraService:
                 self.last_capture_status.update({
                     "status": "completed",
                     "filename": filename,
-                    "imu_data": imu_data
+                    "imu_data": None  # IMU data removed - only master has IMU access
                 })
                 
                 self._send_response(command_id, "ok", start_time_ns, end_time_ns, 
