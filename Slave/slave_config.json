@@ -8,7 +8,7 @@
   "wifi_password": "Helmet1234",
   "log_dir": "~/helmet_camera_logs",
   "mqtt": {
-    "broker_host": "192.168.1.100",
+    "broker_host": "192.168.1.144",
     "broker_port": 1883,
     "topic_commands": "helmet/commands",
     "topic_responses": "helmet/responses",
