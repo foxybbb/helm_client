@@ -19,16 +19,41 @@ class ConfigLoader:
             with open(config_path, "r") as f:
                 config = json.load(f)
             
-            # Validate required fields
-            required_fields = [
-                'gpio_pin', 'startup_delay', 'min_high_duration', 
-                'photo_base_dir', 'wifi_ssid', 'wifi_password'
-            ]
+            # Determine config type and validate accordingly
+            is_master_config = 'master_id' in config or 'slaves' in config
+            is_slave_config = 'client_id' in config or 'min_high_duration' in config
             
-            # Optional fields with defaults
-            optional_fields = {
-                'log_dir': '~/helmet_camera_logs'
-            }
+            if is_master_config:
+                # Master configuration validation
+                required_fields = [
+                    'master_id', 'gpio_pin', 'startup_delay', 'pulse_duration_ms',
+                    'pulse_interval_ms', 'exposure_us', 'timeout_ms', 'photo_base_dir',
+                    'mqtt', 'slaves'
+                ]
+                optional_fields = {
+                    'log_dir': '~/helmet_camera_logs',
+                    'web_port': 8081
+                }
+                logger.info("Loading master configuration")
+                
+            elif is_slave_config:
+                # Slave configuration validation
+                required_fields = [
+                    'client_id', 'gpio_pin', 'startup_delay', 'min_high_duration', 
+                    'photo_base_dir', 'wifi_ssid', 'wifi_password', 'mqtt'
+                ]
+                optional_fields = {
+                    'log_dir': '~/helmet_camera_logs'
+                }
+                logger.info("Loading slave configuration")
+                
+            else:
+                # Fallback to generic validation
+                required_fields = ['gpio_pin', 'startup_delay', 'photo_base_dir']
+                optional_fields = {
+                    'log_dir': '~/helmet_camera_logs'
+                }
+                logger.warning("Could not determine config type, using generic validation")
             
             # Add default values for missing optional fields
             for field, default_value in optional_fields.items():
