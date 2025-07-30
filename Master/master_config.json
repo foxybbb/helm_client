@@ -9,6 +9,9 @@
   "photo_base_dir": "/home/rpi",
   "log_dir": "~/helmet_camera_logs",
   "web_port": 8081,
+  "min_high_duration": 3000,
+  "wifi_ssid": "TSI2024",
+  "wifi_password": "TSIRIGA2024",
   "mqtt": {
     "broker_host": "192.168.1.144",
     "broker_port": 1883,
