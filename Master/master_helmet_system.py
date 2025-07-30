@@ -23,6 +23,8 @@ from camera.utils import setup_logging
 from camera.services import MasterIMUSensor
 from web_master_server import setup_master_web_server, run_master_web_server
 
+logger = logging.getLogger(__name__)
+
 
 class MQTTMasterService:
     """MQTT service for master to communicate with slaves"""
