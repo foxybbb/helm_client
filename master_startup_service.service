@@ -1,0 +1,15 @@
+[Unit]
+Description=Master Startup Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/rpi/helm_client/Master/master_helmet_system.py
+WorkingDirectory=/home/rpi/helm_client/Master/
+Restart=on-failure
+User=rpi
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

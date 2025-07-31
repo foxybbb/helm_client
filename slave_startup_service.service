@@ -1,0 +1,15 @@
+[Unit]
+Description=Slave Startup Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/rpi/helm_client/Slave/slave_helmet_camera.py
+WorkingDirectory=/home/rpi/helm_client/Slave/
+Restart=on-failure
+User=rpi
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
