@@ -12,39 +12,39 @@ class Mode:
     CONFIG_MODE = 0x00
     NDOF_MODE = 0x0C
 
-# I2C подключение (используй board.I2C(), если не STEMMA)
+# I2C connection (use board.I2C() if not STEMMA)
 i2c = board.I2C()
 sensor = adafruit_bno055.BNO055_I2C(i2c)
-sensor.mode = Mode.NDOF_MODE  # Полный режим со всеми сенсорами
+sensor.mode = Mode.NDOF_MODE  # Full mode with all sensors
 
 def print_status(name, index):
     status = sensor.calibration_status[index]
     print(f"{name} Calib Status: {int(100 / 3 * status)}%")
 
-print("🧭 Магнитометр: танец восьмёркой")
+print("🧭 Magnetometer: figure-eight dance")
 while sensor.calibration_status[3] < 3:
     print_status("Mag", 3)
     time.sleep(1)
-print("✅ Магнитометр откалиброван\n")
+print("✅ Magnetometer calibrated\n")
 time.sleep(1)
 
-print("🪂 Акселерометр: шесть устойчивых положений")
+print("🪂 Accelerometer: six stable positions")
 while sensor.calibration_status[2] < 3:
     print_status("Accel", 2)
     time.sleep(1)
-print("✅ Акселерометр откалиброван\n")
+print("✅ Accelerometer calibrated\n")
 time.sleep(1)
 
-print("🧍 Гироскоп: держать неподвижно")
+print("🧍 Gyroscope: keep motionless")
 while sensor.calibration_status[1] < 3:
     print_status("Gyro", 1)
     time.sleep(1)
-print("✅ Гироскоп откалиброван\n")
+print("✅ Gyroscope calibrated\n")
 time.sleep(1)
 
-print("🎉 ВСЁ КАЛИБРОВАНО!")
+print("🎉 EVERYTHING CALIBRATED!")
 
-# Сохраняем калибровочные значения
+# Save calibration values
 calib = {
     "offsets_accelerometer": sensor.offsets_accelerometer,
     "offsets_magnetometer": sensor.offsets_magnetometer,
@@ -56,5 +56,5 @@ calib = {
 with open(CALIBRATION_FILE, "w") as f:
     json.dump(calib, f, indent=4)
 
-print(f"💾 Калибровочные данные сохранены в: {CALIBRATION_FILE}")
-print("\n🧩 Эти значения можно использовать в других скриптах для загрузки оффсетов.")
+print(f"💾 Calibration data saved to: {CALIBRATION_FILE}")
+print("\n🧩 These values can be used in other scripts to load offsets.")

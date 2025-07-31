@@ -447,6 +447,53 @@ class GPIOPulseGenerator:
             logger.error(f"Error during GPIO cleanup: {e}")
 
 
+class GPIOTriggerHandler:
+    """Handles GPIO 20 trigger for capture initiation"""
+    
+    def __init__(self, master_system, config):
+        self.master_system = master_system
+        self.trigger_pin = 20  # GPIO 20 for capture trigger
+        self.debounce_time = 0.5  # 500ms debounce
+        self.last_trigger_time = 0
+        self._setup_gpio()
+        
+    def _setup_gpio(self):
+        """Initialize GPIO 20 for trigger detection"""
+        try:
+            GPIO.setup(self.trigger_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.add_event_detect(self.trigger_pin, GPIO.FALLING, 
+                                callback=self._trigger_callback, 
+                                bouncetime=int(self.debounce_time * 1000))
+            logger.info(f"GPIO {self.trigger_pin} initialized for capture trigger with pull-up resistor")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize GPIO trigger: {e}")
+            raise
+    
+    def _trigger_callback(self, channel):
+        """Handle GPIO trigger event"""
+        current_time = time.time()
+        if current_time - self.last_trigger_time < self.debounce_time:
+            return  # Debounce
+            
+        self.last_trigger_time = current_time
+        logger.info(f"GPIO {self.trigger_pin} trigger detected - initiating capture")
+        
+        # Trigger single capture
+        try:
+            self.master_system.capture_sequence(count=1, interval_seconds=0)
+        except Exception as e:
+            logger.error(f"Error during GPIO triggered capture: {e}")
+    
+    def cleanup(self):
+        """Cleanup GPIO trigger"""
+        try:
+            GPIO.remove_event_detect(self.trigger_pin)
+            logger.info("GPIO trigger cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during GPIO trigger cleanup: {e}")
+
+
 class MasterHelmetSystem:
     """Main master system coordinator"""
     
@@ -460,9 +507,13 @@ class MasterHelmetSystem:
         self.master_camera = HelmetCamera(cam_number=1)
         self.session_logger = JsonLogger(cam_number=1, config=config)
         self.session_dir = None
+        self.session_number = self._get_next_session_number()
         
         # OLED display functionality
         self.oled_display = MasterOLEDDisplay()
+        
+        # GPIO trigger handler
+        self.gpio_trigger = GPIOTriggerHandler(self, config)
         
         # Display update thread
         self.display_thread = None
@@ -470,6 +521,38 @@ class MasterHelmetSystem:
         
         self.running = False
         
+    def _get_next_session_number(self):
+        """Generate next session number for today"""
+        try:
+            now = datetime.datetime.now()
+            date_str = now.strftime('%Y%m%d')
+            base_dir = Path(self.config["photo_base_dir"]).expanduser() / "helmet-cam1"
+            
+            # Find existing sessions for today
+            session_dirs = []
+            if base_dir.exists():
+                pattern = f"session_{date_str}_*"
+                session_dirs = list(base_dir.glob(pattern))
+            
+            # Extract session numbers and find the next one
+            session_nums = []
+            for session_dir in session_dirs:
+                try:
+                    # Extract session number from name like "session_20250730_001"
+                    parts = session_dir.name.split('_')
+                    if len(parts) >= 3:
+                        session_nums.append(int(parts[2]))
+                except (ValueError, IndexError):
+                    continue
+            
+            # Next session number
+            next_num = max(session_nums, default=0) + 1
+            return f"{next_num:03d}"  # 001, 002, etc.
+            
+        except Exception as e:
+            logger.error(f"Error generating session number: {e}")
+            return "001"  # Default fallback
+    
     def start(self):
         """Start master system"""
         logger.info("Starting Master Helmet System...")
@@ -477,13 +560,13 @@ class MasterHelmetSystem:
         # Start MQTT service
         self.mqtt_service.start()
         
-        # Generate session name
+        # Generate session name with session number
         now = datetime.datetime.now()
-        session_name = f"session_{now.strftime('%Y%m%d_%H%M%S')}"
+        session_name = f"session_{now.strftime('%Y%m%d')}_{self.session_number}"
         self.mqtt_service.session_name = session_name
         
         # Start master camera session
-        self.session_logger.start_session()
+        self.session_logger.start_session(session_name)
         self.session_dir = self.session_logger.session_dir
         
         # Create IMU data file in session directory
@@ -649,6 +732,10 @@ class MasterHelmetSystem:
         if hasattr(self, 'oled_display'):
             self.oled_display.cleanup()
         
+        # Cleanup GPIO trigger
+        if hasattr(self, 'gpio_trigger'):
+            self.gpio_trigger.cleanup()
+        
         # Cleanup other components
         self.gpio_generator.cleanup()
         self.mqtt_service.cleanup()
@@ -704,63 +791,16 @@ def main():
         logger.info(f"Master web interface started on port {web_port}")
         logger.info(f"Open http://<master-ip>:{web_port} in your browser to control the system")
         
-        logger.info("Master system ready. Starting interactive mode...")
-        logger.info("Commands: 'capture [count] [interval]', 'stats', or 'quit'")
+        logger.info("Master system ready and running in service mode")
+        logger.info("Captures can be triggered via GPIO 20 or web interface")
         
-        # Interactive command loop
+        # Service mode - run continuously until shutdown signal
         try:
             while master_system.running:
-                try:
-                    user_input = input("master> ").strip().lower()
-                    
-                    if user_input == "quit" or user_input == "exit":
-                        break
-                    elif user_input.startswith("capture"):
-                        parts = user_input.split()
-                        count = int(parts[1]) if len(parts) > 1 else 1
-                        interval = float(parts[2]) if len(parts) > 2 else 5.0
-                        master_system.capture_sequence(count, interval)
-                    elif user_input == "stats":
-                        stats = master_system.mqtt_service.get_stats()
-                        board_stats = master_system.mqtt_service.get_board_stats()
-                        print(f"\n=== MASTER SYSTEM STATISTICS ===")
-                        print(f"Global Stats:")
-                        print(f"  Total commands sent: {stats['total_commands']}")
-                        print(f"  Successful responses: {stats['successful_responses']}")
-                        print(f"  Failed responses: {stats['failed_responses']}")
-                        print(f"  Timeout responses: {stats['timeout_responses']}")
-                        print(f"  Master captures: {stats['master_captures']}")
-                        print(f"  Master capture failures: {stats['master_capture_failures']}")
-                        print(f"  Pending commands: {len(master_system.mqtt_service.pending_commands)}")
-                        
-                        print(f"\nBoard-specific Stats:")
-                        for board_id, board_stat in board_stats.items():
-                            print(f"  {board_id}:")
-                            print(f"    Status: {board_stat['status']}")
-                            print(f"    Responses: {board_stat['successful_responses']}/{board_stat['total_commands']}")
-                            print(f"    Failures: {board_stat['failed_responses']}")
-                            print(f"    Timeouts: {board_stat['timeout_responses']}")
-                            print(f"    Avg response time: {board_stat['avg_response_time_ms']:.1f}ms")
-                            if board_stat['last_seen']:
-                                print(f"    Last seen: {board_stat['last_seen']}")
-                        print()
-                    elif user_input == "help":
-                        print("Available commands:")
-                        print("  capture [count] [interval] - Take photos (default: 1 photo, 5s interval)")
-                        print("  stats - Show system statistics")
-                        print("  quit/exit - Shutdown system")
-                        print("  help - Show this help")
-                    else:
-                        print("Unknown command. Type 'help' for available commands.")
-                        
-                except EOFError:
-                    # Handle Ctrl+D
-                    break
-                except ValueError as e:
-                    print(f"Invalid input: {e}")
-                except Exception as e:
-                    logger.error(f"Error processing command: {e}")
-                    
+                # Send periodic polling to check slave status
+                master_system.mqtt_service.send_poll_message()
+                time.sleep(30)  # Poll every 30 seconds
+                
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received, shutting down...")
         except Exception as e:

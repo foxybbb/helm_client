@@ -1,0 +1,43 @@
+[Unit]
+Description=Helmet Camera Slave Service
+Documentation=https://github.com/your-repo/helmet-camera
+After=network-online.target
+Wants=network-online.target
+StartLimitBurst=5
+StartLimitIntervalSec=30
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/helmet_camera/Slave
+ExecStart=/usr/bin/python3 /home/pi/helmet_camera/Slave/slave_helmet_camera.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helmet-camera-slave
+
+# Environment variables
+Environment=PYTHONPATH=/home/pi/helmet_camera/Slave
+Environment=PYTHONUNBUFFERED=1
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=80%
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/home/pi/helmet_camera/Slave /tmp /var/tmp /home/pi
+
+# Allow access to camera and GPIO
+SupplementaryGroups=video gpio i2c spi
+
+# Restart policy
+StartLimitAction=reboot-force
+
+[Install]
+WantedBy=multi-user.target 

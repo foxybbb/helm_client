@@ -252,6 +252,7 @@ class MasterOLEDDisplay:
         draw = ImageDraw.Draw(image)
         
         stats = master_system.mqtt_service.get_stats()
+        total_photos = master_system.session_logger.photo_count
         
         # Calculate success rate
         total_responses = stats["successful_responses"] + stats["failed_responses"] + stats["timeout_responses"]
@@ -261,7 +262,7 @@ class MasterOLEDDisplay:
         draw.text((0, 0), f"STATISTICS", fill=255)
         draw.text((0, 8), f"CMD: {stats['total_commands']}", fill=255)
         draw.text((64, 8), f"OK: {success_rate}%", fill=255)
-        draw.text((0, 16), f"CAM1: {stats['master_captures']}", fill=255)
+        draw.text((0, 16), f"PHOTOS: {total_photos}", fill=255)
         draw.text((64, 16), f"FAIL: {stats['failed_responses']}", fill=255)
         draw.text((0, 24), f"TIMEOUT: {stats['timeout_responses']}", fill=255)
         
@@ -481,12 +482,20 @@ class JsonLogger:
         self.session_dir = None
         self.log_path = None
 
-    def start_session(self):
+    def start_session(self, session_name=None):
         now = datetime.datetime.now()
         self.session["start_time"] = now.isoformat()
-        date_folder = now.strftime('%Y%m%d')  # Only date
-        base_dir = Path(self.config["photo_base_dir"]) / f"helmet-cam{self.cam_number}"
-        self.session_dir = base_dir / f"session_{date_folder}"
+        
+        # Use provided session name or generate default
+        if session_name:
+            session_folder_name = session_name
+        else:
+            date_folder = now.strftime('%Y%m%d')
+            session_folder_name = f"session_{date_folder}"
+        
+        # Create session directory with new naming convention
+        base_dir = Path(self.config["photo_base_dir"]).expanduser() / f"helmet-cam{self.cam_number}"
+        self.session_dir = base_dir / session_folder_name
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.session_dir / "session_log.json"
         logger.info(f"Session started for camera {self.cam_number}: {self.session_dir}")

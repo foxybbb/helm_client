@@ -31,10 +31,10 @@ def load_calibration(sensor):
         sensor.offsets_gyroscope = tuple(calib["offsets_gyroscope"])
         sensor.radius_accelerometer = calib["radius_accelerometer"]
         sensor.radius_magnetometer = calib["radius_magnetometer"]
-        print("✅ Калибровка загружена.")
+        print("✅ Calibration loaded.")
         return True
     except Exception as e:
-        print(f"⚠️ Ошибка при загрузке калибровки: {e}")
+        print(f"⚠️ Error loading calibration: {e}")
         return False
 
 def save_calibration(sensor):
@@ -47,15 +47,15 @@ def save_calibration(sensor):
     }
     with open(CALIBRATION_FILE, "w") as f:
         json.dump(calib, f, indent=4)
-    print(f"💾 Калибровка сохранена в: {CALIBRATION_FILE}")
+    print(f"💾 Calibration saved to: {CALIBRATION_FILE}")
 
-# --- Инициализация I2C и сенсора ---
+# --- I2C and sensor initialization ---
 i2c = board.I2C()
 sensor = adafruit_bno055.BNO055_I2C(i2c)
 
-# --- Калибровка ---
+# --- Calibration ---
 if not load_calibration(sensor):
-    print("🧭 Калибровка сенсора BNO055...")
+    print("🧭 Calibrating BNO055 sensor...")
     while sensor.calibration_status[3] < 3:
         print(f"Magnetometer calibration: {int(100 / 3 * sensor.calibration_status[3])}%")
         time.sleep(1)
@@ -65,11 +65,11 @@ if not load_calibration(sensor):
     while sensor.calibration_status[1] < 3:
         print(f"Gyroscope calibration: {int(100 / 3 * sensor.calibration_status[1])}%")
         time.sleep(1)
-    print("✅ Все системы откалиброваны.")
+    print("✅ All systems calibrated.")
     save_calibration(sensor)
 
-# --- Ожидание валидных данных ---
-print("📡 Ожидание валидных данных от BNO055...")
+# --- Waiting for valid data ---
+print("📡 Waiting for valid data from BNO055...")
 while True:
     data = {
         "timestamp": datetime.now().isoformat(),
@@ -87,9 +87,9 @@ while True:
         break
     time.sleep(0.1)
 
-# --- Сохраняем валидный набор ---
+# --- Save valid dataset ---
 filename = f"bno055_record_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 with open(filename, "w") as f:
     json.dump(data, f, indent=4)
 
-print(f"✅ Первый валидный набор данных сохранён в: {filename}")
+print(f"✅ First valid dataset saved to: {filename}")
