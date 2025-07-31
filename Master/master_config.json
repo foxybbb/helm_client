@@ -22,6 +22,10 @@
   },
   "slaves": [
     "rpihelmet2",
-    "rpihelmet3"
+    "rpihelmet3",
+    "rpihelmet4",
+    "rpihelmet5",
+    "rpihelmet6",
+    "rpihelmet7"
   ]
 } 
