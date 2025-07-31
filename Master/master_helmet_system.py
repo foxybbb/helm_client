@@ -448,47 +448,69 @@ class GPIOPulseGenerator:
 
 
 class GPIOTriggerHandler:
-    """Handles GPIO 20 trigger for capture initiation"""
+    """Handles GPIO 20 trigger for capture initiation using polling"""
     
     def __init__(self, master_system, config):
         self.master_system = master_system
         self.trigger_pin = 20  # GPIO 20 for capture trigger
         self.debounce_time = 0.5  # 500ms debounce
         self.last_trigger_time = 0
+        self.last_state = GPIO.HIGH  # Previous GPIO state
+        self.polling_interval = 0.05  # Poll every 50ms
+        self.running = False
+        self.poll_thread = None
         self._setup_gpio()
         
     def _setup_gpio(self):
         """Initialize GPIO 20 for trigger detection"""
         try:
             GPIO.setup(self.trigger_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            GPIO.add_event_detect(self.trigger_pin, GPIO.FALLING, 
-                                callback=self._trigger_callback, 
-                                bouncetime=int(self.debounce_time * 1000))
-            logger.info(f"GPIO {self.trigger_pin} initialized for capture trigger with pull-up resistor")
+            logger.info(f"GPIO {self.trigger_pin} initialized for polling-based capture trigger with pull-up resistor")
+            
+            # Start polling thread
+            self.running = True
+            self.poll_thread = threading.Thread(target=self._poll_gpio, daemon=True)
+            self.poll_thread.start()
+            logger.info(f"GPIO {self.trigger_pin} polling thread started")
             
         except Exception as e:
             logger.error(f"Failed to initialize GPIO trigger: {e}")
             raise
     
-    def _trigger_callback(self, channel):
-        """Handle GPIO trigger event"""
-        current_time = time.time()
-        if current_time - self.last_trigger_time < self.debounce_time:
-            return  # Debounce
-            
-        self.last_trigger_time = current_time
-        logger.info(f"GPIO {self.trigger_pin} trigger detected - initiating capture")
-        
-        # Trigger single capture
-        try:
-            self.master_system.capture_sequence(count=1, interval_seconds=0)
-        except Exception as e:
-            logger.error(f"Error during GPIO triggered capture: {e}")
+    def _poll_gpio(self):
+        """Continuously poll GPIO 20 state"""
+        while self.running:
+            try:
+                current_state = GPIO.input(self.trigger_pin)
+                current_time = time.time()
+                
+                # Detect falling edge (HIGH to LOW transition) with debounce
+                if (self.last_state == GPIO.HIGH and 
+                    current_state == GPIO.LOW and 
+                    current_time - self.last_trigger_time > self.debounce_time):
+                    
+                    self.last_trigger_time = current_time
+                    logger.info(f"GPIO {self.trigger_pin} trigger detected (polling) - initiating capture")
+                    
+                    # Trigger single capture
+                    try:
+                        self.master_system.capture_sequence(count=1, interval_seconds=0)
+                    except Exception as e:
+                        logger.error(f"Error during GPIO triggered capture: {e}")
+                
+                self.last_state = current_state
+                time.sleep(self.polling_interval)
+                
+            except Exception as e:
+                logger.error(f"Error in GPIO polling loop: {e}")
+                time.sleep(1)  # Wait longer on error
     
     def cleanup(self):
         """Cleanup GPIO trigger"""
         try:
-            GPIO.remove_event_detect(self.trigger_pin)
+            self.running = False
+            if self.poll_thread and self.poll_thread.is_alive():
+                self.poll_thread.join(timeout=2)
             logger.info("GPIO trigger cleanup completed")
         except Exception as e:
             logger.error(f"Error during GPIO trigger cleanup: {e}")
