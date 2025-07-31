@@ -179,15 +179,15 @@ def api_master_logs():
             return jsonify({"lines": ["No log directory found"]})
         
         # Find the most recent log file
-            log_files = list(log_dir.glob("helmet_camera_*.log"))
+        log_files = list(log_dir.glob("helmet_camera_*.log"))
         if not log_files:
             return jsonify({"lines": ["No log files found"]})
         
-                latest_log = max(log_files, key=lambda f: f.stat().st_mtime)
-                
+        latest_log = max(log_files, key=lambda f: f.stat().st_mtime)
+        
         # Read last 50 lines
         with open(latest_log, 'r', encoding='utf-8', errors='ignore') as f:
-                    lines = f.readlines()
+            lines = f.readlines()
             recent_lines = [line.strip() for line in lines[-50:] if line.strip()]
         
         return jsonify({"lines": recent_lines})
