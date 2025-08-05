@@ -78,7 +78,7 @@ class MQTTCameraService:
         except Exception as e:
             logger.error(f"Failed to start slave MQTT service: {e}")
             raise
-    
+        
     def _on_connect(self, client, userdata, flags, rc):
         """Callback for when MQTT client connects"""
         if rc == 0:
@@ -269,7 +269,7 @@ class MQTTCameraService:
             
             # Send response to master
             self._send_response(response)
-            
+                
         except Exception as e:
             logger.error(f"Error processing command {command_id}: {e}")
             

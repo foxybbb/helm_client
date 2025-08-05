@@ -121,15 +121,15 @@ remove_existing_connection() {
 create_connection() {
     print_status "$BLUE" "Creating HelmetAP connection profile..."
     
-    # Create WiFi connection
+    # Create WiFi connection with correct NetworkManager syntax
     nmcli connection add \
         type wifi \
         ifname $INTERFACE \
         con-name "$CONNECTION_NAME" \
         autoconnect yes \
         wifi.ssid "$AP_SSID" \
-        wifi.security wpa-psk \
-        wifi.psk "$AP_PASSWORD"
+        wifi-sec.key-mgmt wpa-psk \
+        wifi-sec.psk "$AP_PASSWORD"
     
     if [[ $? -eq 0 ]]; then
         print_status "$GREEN" "Connection profile created successfully"

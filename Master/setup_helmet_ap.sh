@@ -92,7 +92,7 @@ remove_existing_hotspot() {
 create_hotspot() {
     print_status "$BLUE" "Creating HelmetAP hotspot..."
     
-    # Create the hotspot connection
+    # Create the hotspot connection with correct NetworkManager syntax
     nmcli connection add \
         type wifi \
         ifname $AP_INTERFACE \
@@ -100,8 +100,8 @@ create_hotspot() {
         autoconnect yes \
         wifi.mode ap \
         wifi.ssid "$AP_SSID" \
-        wifi.security wpa-psk \
-        wifi.psk "$AP_PASSWORD" \
+        wifi-sec.key-mgmt wpa-psk \
+        wifi-sec.psk "$AP_PASSWORD" \
         ipv4.method shared \
         ipv4.address $AP_IP/24
     
