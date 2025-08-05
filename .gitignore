@@ -84,6 +84,11 @@ known_hosts
 transfer_*.log
 transfer_*.log.*
 
+# Cleanup Scripts Temporary Files
+cleanup_*.log
+delete_photos_*.log
+update_boards_repo_*.log
+
 # Test Files
 test_photos/
 test_data/

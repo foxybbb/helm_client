@@ -24,26 +24,18 @@ class MQTTCameraService:
     
     def __init__(self, config, camera_service):
         self.config = config
-        self.camera_service = camera_service
         self.client_id = config["client_id"]
+        self.camera_service = camera_service
         self.mqtt_config = config["mqtt"]
+        
+        # MQTT client setup
         self.client = mqtt.Client(client_id=self.client_id)
-        
-        # IMU sensor removed - only master board has IMU access
-        
-        # Setup callbacks
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_disconnect = self._on_disconnect
         
-        # Connection status
-        self.connected = False
-        self.running = True
-        
-        # Command counter for tracking
+        # Capture state tracking
         self.last_command_id = None
-        
-        # Status tracking
         self.last_capture_status = {
             "timestamp": None,
             "status": "idle",
@@ -52,18 +44,50 @@ class MQTTCameraService:
             "imu_data": None
         }
         
-        # Register cleanup
-        atexit.register(self.cleanup)
+        # Session management for grouping photos
+        self.current_session_dir = None
+        self.current_session_date = None
+        self.session_timeout = 1800  # 30 minutes timeout for session
+        self.last_capture_time = 0
+        self.photos_in_session = 0
         
+        # Response tracking
+        self.last_response_time = time.time()
+        
+    def start(self):
+        """Start MQTT service"""
+        try:
+            broker_host = self.mqtt_config["broker_host"]
+            broker_port = self.mqtt_config["broker_port"]
+            keepalive = self.mqtt_config["keepalive"]
+            
+            logger.info(f"Connecting to MQTT broker at {broker_host}:{broker_port}")
+            self.client.connect(broker_host, broker_port, keepalive)
+            
+            # Start network loop in separate thread
+            self.client.loop_start()
+            
+            # Wait for connection
+            for _ in range(10):
+                if hasattr(self, 'connected') and self.connected:
+                    break
+                time.sleep(0.5)
+            
+            logger.info("Slave MQTT service started successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to start slave MQTT service: {e}")
+            raise
+    
     def _on_connect(self, client, userdata, flags, rc):
         """Callback for when MQTT client connects"""
         if rc == 0:
             self.connected = True
-            logger.info(f"MQTT connected successfully as {self.client_id}")
+            logger.info(f"Slave MQTT connected successfully as {self.client_id}")
             # Subscribe to command topic
             topic = self.mqtt_config["topic_commands"]
             client.subscribe(topic, qos=self.mqtt_config["qos"])
-            logger.info(f"Subscribed to topic: {topic}")
+            logger.info(f"Subscribed to command topic: {topic}")
         else:
             logger.error(f"MQTT connection failed with code {rc}")
             self.connected = False
@@ -71,33 +95,84 @@ class MQTTCameraService:
     def _on_disconnect(self, client, userdata, rc):
         """Callback for when MQTT client disconnects"""
         self.connected = False
-        logger.warning(f"MQTT disconnected with code {rc}")
+        logger.warning(f"Slave MQTT disconnected with code {rc}")
     
     def _on_message(self, client, userdata, msg):
-        """Handle incoming MQTT command messages"""
+        """Handle incoming command messages from master"""
         try:
-            # Parse command JSON
             command_str = msg.payload.decode('utf-8')
             command = json.loads(command_str)
             
             logger.info(f"Received command: {command}")
-            
-            # Validate command format
-            required_fields = ["id", "t_utc_ns", "exposure_us", "timeout_ms", "notes"]
-            if not all(field in command for field in required_fields):
-                logger.error(f"Invalid command format, missing fields: {command}")
-                self._send_response(command.get("id", 0), "fail", 
-                                 error="Invalid command format")
-                return
-            
-            # Process command in separate thread to avoid blocking MQTT
-            threading.Thread(target=self._process_command, 
-                           args=(command,), daemon=True).start()
+            self._process_command(command)
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse command JSON: {e}")
         except Exception as e:
             logger.error(f"Error processing MQTT message: {e}")
+    
+    def _get_session_directory(self):
+        """Get or create appropriate session directory for grouping photos"""
+        current_time = time.time()
+        current_date = datetime.datetime.now().strftime('%Y%m%d')
+        
+        # Check if we need a new session (new day or timeout exceeded)
+        need_new_session = (
+            self.current_session_dir is None or
+            self.current_session_date != current_date or
+            (current_time - self.last_capture_time) > self.session_timeout
+        )
+        
+        if need_new_session:
+            # Create new session directory
+            cam_number = self.client_id[-1]  # Extract camera number from client_id
+            base_dir = Path(self.config["photo_base_dir"]) / f"helmet-cam{cam_number}"
+            
+            # Create daily session directory
+            session_name = f"session_{current_date}"
+            
+            # If multiple sessions in same day, add sequence number
+            session_dir = base_dir / session_name
+            counter = 1
+            while session_dir.exists() and self.photos_in_session > 100:  # Start new session after 100 photos
+                session_name = f"session_{current_date}_{counter:03d}"
+                session_dir = base_dir / session_name
+                counter += 1
+            
+            session_dir.mkdir(parents=True, exist_ok=True)
+            
+            self.current_session_dir = session_dir
+            self.current_session_date = current_date
+            self.photos_in_session = 0
+            
+            logger.info(f"Created new session directory: {session_dir}")
+        
+        return self.current_session_dir
+    
+    def _clean_notes_for_filename(self, notes):
+        """Clean up notes field to remove web sequences and unwanted suffixes"""
+        if not notes:
+            return "capture"
+        
+        # Remove web sequence patterns
+        import re
+        notes = re.sub(r'_web_sequence_\d+', '', notes)
+        notes = re.sub(r'_web_single_\d+', '', notes)
+        notes = re.sub(r'_web_\w+', '', notes)
+        
+        # Remove timestamp suffixes that are too specific
+        notes = re.sub(r'_\d{6}$', '', notes)  # Remove HHMMSS
+        notes = re.sub(r'_\d{8}_\d{6}$', '', notes)  # Remove YYYYMMDD_HHMMSS
+        
+        # Clean up multiple underscores
+        notes = re.sub(r'_+', '_', notes)
+        notes = notes.strip('_')
+        
+        # Default if nothing left
+        if not notes or notes == "session":
+            return "capture"
+        
+        return notes
     
     def _process_command(self, command):
         """Process camera capture command"""
@@ -128,151 +203,148 @@ class MQTTCameraService:
             
             logger.info(f"Processing capture command {command_id}")
             
-                    # IMU data removed - only master board has IMU access
+            # Get session directory (groups photos properly)
+            session_dir = self._get_session_directory()
             
-            # Create session directory based on notes
-            notes = command["notes"]
-            session_dir = Path(self.config["photo_base_dir"]) / f"helmet-cam{self.client_id[-1]}" / notes
-            session_dir.mkdir(parents=True, exist_ok=True)
+            # Clean up the notes for filename
+            notes = command.get("notes", "capture")
+            clean_notes = self._clean_notes_for_filename(notes)
+            
+            # Create meaningful filename
+            cam_number = self.client_id[-1]
+            timestamp = datetime.datetime.now().strftime('%H%M%S')
+            filename = f"cam{cam_number}_{timestamp}_{command_id:06d}.jpg"
             
             # Capture photo
-            filename = f"cam{self.client_id[-1]}_{notes.split('_')[-1]}_{command_id:06d}.jpg"
             photo_path = self.camera_service.capture_with_filename(session_dir, filename)
             
             end_time_ns = time.time_ns()
             jitter_us = (start_time_ns - command["t_utc_ns"]) // 1000  # Convert to microseconds
             
             if photo_path:
-                            # IMU data saving removed - only master has IMU access
+                # Update session tracking
+                self.last_capture_time = time.time()
+                self.photos_in_session += 1
                 
-                # Update status
+                # Send success response
+                response = {
+                    "id": command_id,
+                    "client": self.client_id,
+                    "status": "ok",
+                    "started_ns": start_time_ns,
+                    "finished_ns": end_time_ns,
+                    "file": filename,
+                    "jitter_us": jitter_us,
+                    "session_dir": str(session_dir.name),
+                    "photos_in_session": self.photos_in_session,
+                    "error": ""
+                }
+                
                 self.last_capture_status.update({
-                    "status": "completed",
-                    "filename": filename,
-                    "imu_data": None  # IMU data removed - only master has IMU access
+                    "status": "success",
+                    "filename": filename
                 })
                 
-                self._send_response(command_id, "ok", start_time_ns, end_time_ns, 
-                                  filename, jitter_us)
-                logger.info(f"Command {command_id} completed successfully: {filename}")
-            else:
-                self.last_capture_status["status"] = "failed"
-                self._send_response(command_id, "fail", start_time_ns, end_time_ns,
-                                  error="Camera capture failed")
-                logger.error(f"Command {command_id} failed: camera capture error")
+                logger.info(f"Photo captured successfully: {filename} (Session: {session_dir.name}, Photo #{self.photos_in_session})")
                 
+            else:
+                # Send failure response
+                response = {
+                    "id": command_id,
+                    "client": self.client_id,
+                    "status": "error",
+                    "started_ns": start_time_ns,
+                    "finished_ns": end_time_ns,
+                    "file": "",
+                    "jitter_us": jitter_us,
+                    "error": "Photo capture failed"
+                }
+                
+                self.last_capture_status.update({
+                    "status": "failed",
+                    "filename": None
+                })
+                
+                logger.error(f"Photo capture failed for command {command_id}")
+            
+            # Send response to master
+            self._send_response(response)
+            
         except Exception as e:
-            end_time_ns = time.time_ns()
-            # IMU data removed - only master has IMU access
+            logger.error(f"Error processing command {command_id}: {e}")
             
-            self.last_capture_status.update({
-                "status": "error"
-                # IMU data removed - slave no longer has IMU
-            })
+            # Send error response
+            error_response = {
+                "id": command_id,
+                "client": self.client_id,
+                "status": "error",
+                "started_ns": start_time_ns,
+                "finished_ns": time.time_ns(),
+                "file": "",
+                "jitter_us": 0,
+                "error": str(e)
+            }
             
-            self._send_response(command_id, "fail", start_time_ns, end_time_ns,
-                              error=str(e))
-            logger.error(f"Command {command_id} failed with exception: {e}")
-    
-    # _save_imu_data method removed - only master board has IMU access
+            self._send_response(error_response)
     
     def _handle_poll_command(self, command_id, start_time_ns):
         """Handle polling/heartbeat command from master"""
-        end_time_ns = time.time_ns()
-        
-        try:
-            logger.debug(f"Responding to poll command {command_id}")
-            self._send_response(command_id, "ok", start_time_ns, end_time_ns, 
-                              filename="", jitter_us=0, error="")
-        except Exception as e:
-            logger.error(f"Failed to respond to poll command {command_id}: {e}")
-            self._send_response(command_id, "fail", start_time_ns, end_time_ns,
-                              error=f"poll_error: {e}")
-    
-    def _send_response(self, command_id, status, started_ns=None, finished_ns=None, 
-                      filename="", jitter_us=0, error=""):
-        """Send response back to master"""
-        if started_ns is None:
-            started_ns = time.time_ns()
-        if finished_ns is None:
-            finished_ns = time.time_ns()
+        logger.debug(f"Handling poll command {command_id}")
         
         response = {
             "id": command_id,
             "client": self.client_id,
-            "status": status,
-            "started_ns": started_ns,
-            "finished_ns": finished_ns,
-            "file": filename,
-            "jitter_us": jitter_us,
-            "error": error
+            "status": "online",
+            "started_ns": start_time_ns,
+            "finished_ns": time.time_ns(),
+            "file": "",
+            "jitter_us": 0,
+            "last_capture": self.last_capture_status,
+            "current_session": str(self.current_session_dir.name) if self.current_session_dir else None,
+            "photos_in_session": self.photos_in_session,
+            "error": ""
         }
         
-        # IMU data removed - only master board has IMU access
-        
+        self._send_response(response)
+    
+    def _send_response(self, response):
+        """Send response back to master"""
         try:
             topic = self.mqtt_config["topic_responses"]
             response_str = json.dumps(response)
             result = self.client.publish(topic, response_str, qos=self.mqtt_config["qos"])
             
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                logger.debug(f"Response sent for command {command_id}: {status}")
+                logger.debug(f"Response sent for command {response['id']}")
+                self.last_response_time = time.time()
             else:
-                logger.error(f"Failed to send response for command {command_id}")
+                logger.error(f"Failed to send response for command {response['id']}")
                 
         except Exception as e:
-            logger.error(f"Error sending MQTT response: {e}")
+            logger.error(f"Error sending response: {e}")
     
     def get_status(self):
-        """Get current system status for web interface"""
+        """Get current service status"""
         return {
             "client_id": self.client_id,
-            "mqtt_connected": self.connected,
-            "camera_available": self.camera_service._camera_initialized if hasattr(self.camera_service, '_camera_initialized') else False,
-            "imu_available": False,  # IMU removed - only master has IMU access
+            "connected": getattr(self, 'connected', False),
             "last_capture": self.last_capture_status,
-            "current_imu": None  # IMU removed - only master has IMU access
+            "last_response_time": self.last_response_time,
+            "current_session": str(self.current_session_dir.name) if self.current_session_dir else None,
+            "photos_in_session": self.photos_in_session
         }
-    
-    def start(self):
-        """Start MQTT service"""
-        try:
-            broker_host = self.mqtt_config["broker_host"]
-            broker_port = self.mqtt_config["broker_port"]
-            keepalive = self.mqtt_config["keepalive"]
-            
-            logger.info(f"Connecting to MQTT broker at {broker_host}:{broker_port}")
-            self.client.connect(broker_host, broker_port, keepalive)
-            
-            # Start network loop in separate thread
-            self.client.loop_start()
-            
-            # Wait for connection
-            for _ in range(10):  # Wait up to 5 seconds
-                if self.connected:
-                    break
-                time.sleep(0.5)
-            
-            if not self.connected:
-                raise Exception("Failed to connect to MQTT broker within timeout")
-                
-            logger.info("MQTT service started successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to start MQTT service: {e}")
-            raise
     
     def cleanup(self):
         """Cleanup MQTT service"""
         try:
-            self.running = False
             if hasattr(self.client, 'loop_stop'):
                 self.client.loop_stop()
             if hasattr(self.client, 'disconnect'):
                 self.client.disconnect()
-            logger.info("MQTT service cleanup completed")
+            logger.info("Slave MQTT service cleanup completed")
         except Exception as e:
-            logger.error(f"Error during MQTT cleanup: {e}")
+            logger.error(f"Error during slave MQTT cleanup: {e}")
+
 
 class HelmetCamera:
     def __init__(self, cam_number):
@@ -383,6 +455,7 @@ class HelmetCamera:
         except Exception as e:
             logger.error(f"Failed to capture photo: {e}")
             return None
+
     
     def cleanup(self):
         """Cleanup camera resources"""
@@ -399,6 +472,7 @@ class HelmetCamera:
     def __enter__(self):
         """Context manager entry"""
         return self
+
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit with cleanup"""

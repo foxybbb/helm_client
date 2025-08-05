@@ -11,361 +11,340 @@ import RPi.GPIO as GPIO
 from picamera2 import Picamera2
 import paho.mqtt.client as mqtt
 
-# IMU sensor support for master board only
-try:
-    import board
-    import busio
-    import adafruit_bno055
-    IMU_AVAILABLE = True
-except ImportError:
-    IMU_AVAILABLE = False
-    logging.warning("IMU libraries not available - running without IMU support")
-
-# OLED Display support for master board
-try:
-    import board
-    import busio
-    import adafruit_ssd1306
-    from PIL import Image, ImageDraw, ImageFont
-    DISPLAY_AVAILABLE = True
-except ImportError:
-    DISPLAY_AVAILABLE = False
-    logging.warning("OLED display libraries not available - running without display support")
+# IMU sensor support removed - only master board has IMU access
+# IMU functionality has been moved to master-only architecture
 
 logger = logging.getLogger(__name__)
 
-class MasterIMUSensor:
-    """IMU sensor handler for BNO055 - Master board only"""
-    
-    def __init__(self):
-        self.sensor = None
-        self.available = False
-        self._setup_imu()
-    
-    def _setup_imu(self):
-        """Initialize IMU sensor"""
-        if not IMU_AVAILABLE:
-            logger.warning("IMU libraries not installed")
-            return
-        
-        try:
-            # Initialize I2C and sensor
-            i2c = busio.I2C(board.SCL, board.SDA)
-            self.sensor = adafruit_bno055.BNO055_I2C(i2c)
-            
-            # Test reading
-            _ = self.sensor.temperature
-            
-            self.available = True
-            logger.info("Master IMU sensor (BNO055) initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize master IMU sensor: {e}")
-            self.available = False
-    
-    def read_data(self):
-        """Read comprehensive IMU data"""
-        if not self.available:
-            return {
-                "available": False,
-                "error": "IMU sensor not available"
-            }
-        
-        try:
-            # Read all sensor data
-            data = {
-                "available": True,
-                "timestamp_ns": time.time_ns(),
-                "temperature": self.sensor.temperature,
-                "acceleration": {
-                    "x": self.sensor.acceleration[0] if self.sensor.acceleration[0] is not None else 0.0,
-                    "y": self.sensor.acceleration[1] if self.sensor.acceleration[1] is not None else 0.0,
-                    "z": self.sensor.acceleration[2] if self.sensor.acceleration[2] is not None else 0.0,
-                    "unit": "m/s²"
-                },
-                "magnetic": {
-                    "x": self.sensor.magnetic[0] if self.sensor.magnetic[0] is not None else 0.0,
-                    "y": self.sensor.magnetic[1] if self.sensor.magnetic[1] is not None else 0.0,
-                    "z": self.sensor.magnetic[2] if self.sensor.magnetic[2] is not None else 0.0,
-                    "unit": "µT"
-                },
-                "gyroscope": {
-                    "x": self.sensor.gyro[0] if self.sensor.gyro[0] is not None else 0.0,
-                    "y": self.sensor.gyro[1] if self.sensor.gyro[1] is not None else 0.0,
-                    "z": self.sensor.gyro[2] if self.sensor.gyro[2] is not None else 0.0,
-                    "unit": "rad/s"
-                },
-                "euler": {
-                    "heading": self.sensor.euler[0] if self.sensor.euler[0] is not None else 0.0,
-                    "roll": self.sensor.euler[1] if self.sensor.euler[1] is not None else 0.0,
-                    "pitch": self.sensor.euler[2] if self.sensor.euler[2] is not None else 0.0,
-                    "unit": "degrees"
-                },
-                "quaternion": {
-                    "w": self.sensor.quaternion[0] if self.sensor.quaternion[0] is not None else 0.0,
-                    "x": self.sensor.quaternion[1] if self.sensor.quaternion[1] is not None else 0.0,
-                    "y": self.sensor.quaternion[2] if self.sensor.quaternion[2] is not None else 0.0,
-                    "z": self.sensor.quaternion[3] if self.sensor.quaternion[3] is not None else 0.0
-                },
-                "linear_acceleration": {
-                    "x": self.sensor.linear_acceleration[0] if self.sensor.linear_acceleration[0] is not None else 0.0,
-                    "y": self.sensor.linear_acceleration[1] if self.sensor.linear_acceleration[1] is not None else 0.0,
-                    "z": self.sensor.linear_acceleration[2] if self.sensor.linear_acceleration[2] is not None else 0.0,
-                    "unit": "m/s²"
-                },
-                "gravity": {
-                    "x": self.sensor.gravity[0] if self.sensor.gravity[0] is not None else 0.0,
-                    "y": self.sensor.gravity[1] if self.sensor.gravity[1] is not None else 0.0,
-                    "z": self.sensor.gravity[2] if self.sensor.gravity[2] is not None else 0.0,
-                    "unit": "m/s²"
-                },
-                "calibration_status": {
-                    "system": self.sensor.calibration_status[0],
-                    "gyroscope": self.sensor.calibration_status[1],
-                    "accelerometer": self.sensor.calibration_status[2],
-                    "magnetometer": self.sensor.calibration_status[3]
-                }
-            }
-            
-            return data
-            
-        except Exception as e:
-            logger.error(f"Failed to read master IMU data: {e}")
-            return {
-                "available": False,
-                "error": f"IMU read error: {e}"
-            }
+# IMU sensor class removed - only master board has IMU access
+# All IMU functionality moved to master system
 
-class MasterOLEDDisplay:
-    """OLED display handler for SSD1306 128x32 - Master board only"""
+class MQTTCameraService:
+    """MQTT service for handling camera commands from master"""
     
-    def __init__(self, i2c_address=0x3C):
-        self.display = None
-        self.available = False
-        self.i2c_address = i2c_address
-        self.current_screen = 0
-        self.max_screens = 3
-        self.last_update = 0
-        self.update_interval = 2.0  # Update every 2 seconds
-        self._setup_display()
-    
-    def _setup_display(self):
-        """Initialize OLED display"""
-        if not DISPLAY_AVAILABLE:
-            logger.warning("OLED display libraries not installed")
-            return
+    def __init__(self, config, camera_service):
+        self.config = config
+        self.client_id = config["client_id"]
+        self.camera_service = camera_service
+        self.mqtt_config = config["mqtt"]
         
+        # MQTT client setup
+        self.client = mqtt.Client(client_id=self.client_id)
+        self.client.on_connect = self._on_connect
+        self.client.on_message = self._on_message
+        self.client.on_disconnect = self._on_disconnect
+        
+        # Capture state tracking
+        self.last_command_id = None
+        self.last_capture_status = {
+            "timestamp": None,
+            "status": "idle",
+            "command_id": None,
+            "filename": None,
+            "imu_data": None
+        }
+        
+        # Session management for grouping photos
+        self.current_session_dir = None
+        self.current_session_date = None
+        self.session_timeout = 1800  # 30 minutes timeout for session
+        self.last_capture_time = 0
+        self.photos_in_session = 0
+        
+        # Response tracking
+        self.last_response_time = time.time()
+        
+    def start(self):
+        """Start MQTT service"""
         try:
-            # Initialize I2C and display
-            i2c = busio.I2C(board.SCL, board.SDA)
-            self.display = adafruit_ssd1306.SSD1306_I2C(128, 32, i2c, addr=self.i2c_address)
+            broker_host = self.mqtt_config["broker_host"]
+            broker_port = self.mqtt_config["broker_port"]
+            keepalive = self.mqtt_config["keepalive"]
             
-            # Clear display
-            self.display.fill(0)
-            self.display.show()
+            logger.info(f"Connecting to MQTT broker at {broker_host}:{broker_port}")
+            self.client.connect(broker_host, broker_port, keepalive)
             
-            self.available = True
-            logger.info(f"Master OLED display (SSD1306 128x32) initialized at address 0x{self.i2c_address:02X}")
+            # Start network loop in separate thread
+            self.client.loop_start()
             
-            # Show startup message
-            self._show_startup_message()
+            # Wait for connection
+            for _ in range(10):
+                if hasattr(self, 'connected') and self.connected:
+                    break
+                time.sleep(0.5)
+            
+            logger.info("Slave MQTT service started successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize OLED display: {e}")
-            self.available = False
+            logger.error(f"Failed to start slave MQTT service: {e}")
+            raise
     
-    def _show_startup_message(self):
-        """Show startup message on display"""
-        if not self.available:
-            return
-            
+    def _on_connect(self, client, userdata, flags, rc):
+        """Callback for when MQTT client connects"""
+        if rc == 0:
+            self.connected = True
+            logger.info(f"Slave MQTT connected successfully as {self.client_id}")
+            # Subscribe to command topic
+            topic = self.mqtt_config["topic_commands"]
+            client.subscribe(topic, qos=self.mqtt_config["qos"])
+            logger.info(f"Subscribed to command topic: {topic}")
+        else:
+            logger.error(f"MQTT connection failed with code {rc}")
+            self.connected = False
+    
+    def _on_disconnect(self, client, userdata, rc):
+        """Callback for when MQTT client disconnects"""
+        self.connected = False
+        logger.warning(f"Slave MQTT disconnected with code {rc}")
+    
+    def _on_message(self, client, userdata, msg):
+        """Handle incoming command messages from master"""
         try:
-            # Create image for drawing
-            image = Image.new("1", (128, 32))
-            draw = ImageDraw.Draw(image)
+            command_str = msg.payload.decode('utf-8')
+            command = json.loads(command_str)
             
-            # Draw startup message
-            draw.text((0, 0), "MASTER HELMET", fill=255)
-            draw.text((0, 10), "SYSTEM STARTING", fill=255)
-            draw.text((0, 20), "Please wait...", fill=255)
+            logger.info(f"Received command: {command}")
+            self._process_command(command)
             
-            # Display image
-            self.display.image(image)
-            self.display.show()
-            
-            logger.debug("Startup message displayed on OLED")
-            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse command JSON: {e}")
         except Exception as e:
-            logger.error(f"Failed to show startup message: {e}")
+            logger.error(f"Error processing MQTT message: {e}")
     
-    def update_display(self, master_system):
-        """Update display with current system information"""
-        if not self.available:
-            return
-            
+    def _get_session_directory(self):
+        """Get or create appropriate session directory for grouping photos"""
         current_time = time.time()
-        if current_time - self.last_update < self.update_interval:
+        current_date = datetime.datetime.now().strftime('%Y%m%d')
+        
+        # Check if we need a new session (new day or timeout exceeded)
+        need_new_session = (
+            self.current_session_dir is None or
+            self.current_session_date != current_date or
+            (current_time - self.last_capture_time) > self.session_timeout
+        )
+        
+        if need_new_session:
+            # Create new session directory
+            cam_number = self.client_id[-1]  # Extract camera number from client_id
+            base_dir = Path(self.config["photo_base_dir"]) / f"helmet-cam{cam_number}"
+            
+            # Create daily session directory
+            session_name = f"session_{current_date}"
+            
+            # If multiple sessions in same day, add sequence number
+            session_dir = base_dir / session_name
+            counter = 1
+            while session_dir.exists() and self.photos_in_session > 100:  # Start new session after 100 photos
+                session_name = f"session_{current_date}_{counter:03d}"
+                session_dir = base_dir / session_name
+                counter += 1
+            
+            session_dir.mkdir(parents=True, exist_ok=True)
+            
+            self.current_session_dir = session_dir
+            self.current_session_date = current_date
+            self.photos_in_session = 0
+            
+            logger.info(f"Created new session directory: {session_dir}")
+        
+        return self.current_session_dir
+    
+    def _clean_notes_for_filename(self, notes):
+        """Clean up notes field to remove web sequences and unwanted suffixes"""
+        if not notes:
+            return "capture"
+        
+        # Remove web sequence patterns
+        import re
+        notes = re.sub(r'_web_sequence_\d+', '', notes)
+        notes = re.sub(r'_web_single_\d+', '', notes)
+        notes = re.sub(r'_web_\w+', '', notes)
+        
+        # Remove timestamp suffixes that are too specific
+        notes = re.sub(r'_\d{6}$', '', notes)  # Remove HHMMSS
+        notes = re.sub(r'_\d{8}_\d{6}$', '', notes)  # Remove YYYYMMDD_HHMMSS
+        
+        # Clean up multiple underscores
+        notes = re.sub(r'_+', '_', notes)
+        notes = notes.strip('_')
+        
+        # Default if nothing left
+        if not notes or notes == "session":
+            return "capture"
+        
+        return notes
+    
+    def _process_command(self, command):
+        """Process camera capture command"""
+        command_id = command["id"]
+        command_type = command.get("type", "capture")
+        start_time_ns = time.time_ns()
+        
+        # Handle polling/heartbeat messages
+        if command_type == "poll":
+            self._handle_poll_command(command_id, start_time_ns)
             return
-            
+        
+        # Update status
+        self.last_capture_status.update({
+            "timestamp": datetime.datetime.now().isoformat(),
+            "status": "processing",
+            "command_id": command_id,
+            "filename": None,
+            "imu_data": None
+        })
+        
         try:
-            # Cycle through different screens
-            if self.current_screen == 0:
-                self._show_system_status(master_system)
-            elif self.current_screen == 1:
-                self._show_statistics(master_system)
-            elif self.current_screen == 2:
-                self._show_session_info(master_system)
+            # Store command ID to avoid duplicates
+            if self.last_command_id == command_id:
+                logger.warning(f"Duplicate command ID {command_id}, ignoring")
+                return
+            self.last_command_id = command_id
             
-            # Cycle to next screen
-            self.current_screen = (self.current_screen + 1) % self.max_screens
-            self.last_update = current_time
+            logger.info(f"Processing capture command {command_id}")
+            
+            # Get session directory (groups photos properly)
+            session_dir = self._get_session_directory()
+            
+            # Clean up the notes for filename
+            notes = command.get("notes", "capture")
+            clean_notes = self._clean_notes_for_filename(notes)
+            
+            # Create meaningful filename
+            cam_number = self.client_id[-1]
+            timestamp = datetime.datetime.now().strftime('%H%M%S')
+            filename = f"cam{cam_number}_{timestamp}_{command_id:06d}.jpg"
+            
+            # Capture photo
+            photo_path = self.camera_service.capture_with_filename(session_dir, filename)
+            
+            end_time_ns = time.time_ns()
+            jitter_us = (start_time_ns - command["t_utc_ns"]) // 1000  # Convert to microseconds
+            
+            if photo_path:
+                # Update session tracking
+                self.last_capture_time = time.time()
+                self.photos_in_session += 1
+                
+                # Send success response
+                response = {
+                    "id": command_id,
+                    "client": self.client_id,
+                    "status": "ok",
+                    "started_ns": start_time_ns,
+                    "finished_ns": end_time_ns,
+                    "file": filename,
+                    "jitter_us": jitter_us,
+                    "session_dir": str(session_dir.name),
+                    "photos_in_session": self.photos_in_session,
+                    "error": ""
+                }
+                
+                self.last_capture_status.update({
+                    "status": "success",
+                    "filename": filename
+                })
+                
+                logger.info(f"Photo captured successfully: {filename} (Session: {session_dir.name}, Photo #{self.photos_in_session})")
+                
+            else:
+                # Send failure response
+                response = {
+                    "id": command_id,
+                    "client": self.client_id,
+                    "status": "error",
+                    "started_ns": start_time_ns,
+                    "finished_ns": end_time_ns,
+                    "file": "",
+                    "jitter_us": jitter_us,
+                    "error": "Photo capture failed"
+                }
+                
+                self.last_capture_status.update({
+                    "status": "failed",
+                    "filename": None
+                })
+                
+                logger.error(f"Photo capture failed for command {command_id}")
+            
+            # Send response to master
+            self._send_response(response)
             
         except Exception as e:
-            logger.error(f"Failed to update OLED display: {e}")
-    
-    def _show_system_status(self, master_system):
-        """Show system status screen"""
-        image = Image.new("1", (128, 32))
-        draw = ImageDraw.Draw(image)
-        
-        # System status
-        mqtt_status = "MQTT:ON" if master_system.mqtt_service.connected else "MQTT:OFF"
-        imu_status = "IMU:ON" if master_system.imu_sensor.available else "IMU:OFF"
-        
-        # Count online slaves
-        board_stats = master_system.mqtt_service.get_board_stats()
-        online_slaves = len([s for s in board_stats.values() if s["status"] == "online"])
-        total_slaves = len(board_stats)
-        
-        # Draw status
-        draw.text((0, 0), f"MASTER SYSTEM", fill=255)
-        draw.text((0, 8), f"{mqtt_status} {imu_status}", fill=255)
-        draw.text((0, 16), f"SLAVES: {online_slaves}/{total_slaves}", fill=255)
-        draw.text((0, 24), f"STATUS: {'READY' if master_system.running else 'STOP'}", fill=255)
-        
-        self.display.image(image)
-        self.display.show()
-    
-    def _show_statistics(self, master_system):
-        """Show statistics screen"""
-        image = Image.new("1", (128, 32))
-        draw = ImageDraw.Draw(image)
-        
-        stats = master_system.mqtt_service.get_stats()
-        
-        # Calculate success rate
-        total_responses = stats["successful_responses"] + stats["failed_responses"] + stats["timeout_responses"]
-        success_rate = int((stats["successful_responses"] / total_responses * 100)) if total_responses > 0 else 0
-        
-        # Draw statistics
-        draw.text((0, 0), f"STATISTICS", fill=255)
-        draw.text((0, 8), f"CMD: {stats['total_commands']}", fill=255)
-        draw.text((64, 8), f"OK: {success_rate}%", fill=255)
-        draw.text((0, 16), f"CAM1: {stats['master_captures']}", fill=255)
-        draw.text((64, 16), f"FAIL: {stats['failed_responses']}", fill=255)
-        draw.text((0, 24), f"TIMEOUT: {stats['timeout_responses']}", fill=255)
-        
-        self.display.image(image)
-        self.display.show()
-    
-    def _show_session_info(self, master_system):
-        """Show session information screen"""
-        image = Image.new("1", (128, 32))
-        draw = ImageDraw.Draw(image)
-        
-        # Current time
-        current_time = datetime.datetime.now()
-        time_str = current_time.strftime("%H:%M:%S")
-        date_str = current_time.strftime("%m/%d")
-        
-        # Session info
-        session_name = master_system.mqtt_service.session_name or "NO SESSION"
-        session_short = session_name[-12:] if len(session_name) > 12 else session_name
-        
-        # Pending commands
-        pending = len(master_system.mqtt_service.pending_commands)
-        
-        # Draw session info
-        draw.text((0, 0), f"SESSION INFO", fill=255)
-        draw.text((0, 8), f"{session_short}", fill=255)
-        draw.text((0, 16), f"TIME: {time_str}", fill=255)
-        draw.text((0, 24), f"DATE: {date_str} PND: {pending}", fill=255)
-        
-        self.display.image(image)
-        self.display.show()
-    
-    def show_capture_status(self, command_id, master_success=None):
-        """Show capture status temporarily"""
-        if not self.available:
-            return
+            logger.error(f"Error processing command {command_id}: {e}")
             
+            # Send error response
+            error_response = {
+                "id": command_id,
+                "client": self.client_id,
+                "status": "error",
+                "started_ns": start_time_ns,
+                "finished_ns": time.time_ns(),
+                "file": "",
+                "jitter_us": 0,
+                "error": str(e)
+            }
+            
+            self._send_response(error_response)
+    
+    def _handle_poll_command(self, command_id, start_time_ns):
+        """Handle polling/heartbeat command from master"""
+        logger.debug(f"Handling poll command {command_id}")
+        
+        response = {
+            "id": command_id,
+            "client": self.client_id,
+            "status": "online",
+            "started_ns": start_time_ns,
+            "finished_ns": time.time_ns(),
+            "file": "",
+            "jitter_us": 0,
+            "last_capture": self.last_capture_status,
+            "current_session": str(self.current_session_dir.name) if self.current_session_dir else None,
+            "photos_in_session": self.photos_in_session,
+            "error": ""
+        }
+        
+        self._send_response(response)
+    
+    def _send_response(self, response):
+        """Send response back to master"""
         try:
-            image = Image.new("1", (128, 32))
-            draw = ImageDraw.Draw(image)
+            topic = self.mqtt_config["topic_responses"]
+            response_str = json.dumps(response)
+            result = self.client.publish(topic, response_str, qos=self.mqtt_config["qos"])
             
-            # Show capture info
-            draw.text((0, 0), f"CAPTURE #{command_id}", fill=255)
-            if master_success is not None:
-                master_status = "OK" if master_success else "FAIL"
-                draw.text((0, 10), f"MASTER: {master_status}", fill=255)
-            draw.text((0, 20), "Waiting slaves...", fill=255)
-            
-            self.display.image(image)
-            self.display.show()
-            
-            # Reset update timer to avoid immediate overwrite
-            self.last_update = time.time()
-            
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                logger.debug(f"Response sent for command {response['id']}")
+                self.last_response_time = time.time()
+            else:
+                logger.error(f"Failed to send response for command {response['id']}")
+                
         except Exception as e:
-            logger.error(f"Failed to show capture status: {e}")
+            logger.error(f"Error sending response: {e}")
     
-    def show_error_message(self, message):
-        """Show error message on display"""
-        if not self.available:
-            return
-            
-        try:
-            image = Image.new("1", (128, 32))
-            draw = ImageDraw.Draw(image)
-            
-            draw.text((0, 0), "ERROR:", fill=255)
-            # Split message to fit on display
-            words = message.split()
-            line1 = " ".join(words[:2]) if len(words) > 2 else message
-            line2 = " ".join(words[2:4]) if len(words) > 2 else ""
-            line3 = " ".join(words[4:]) if len(words) > 4 else ""
-            
-            draw.text((0, 8), line1[:21], fill=255)
-            if line2:
-                draw.text((0, 16), line2[:21], fill=255)
-            if line3:
-                draw.text((0, 24), line3[:21], fill=255)
-            
-            self.display.image(image)
-            self.display.show()
-            
-        except Exception as e:
-            logger.error(f"Failed to show error message: {e}")
+    def get_status(self):
+        """Get current service status"""
+        return {
+            "client_id": self.client_id,
+            "connected": getattr(self, 'connected', False),
+            "last_capture": self.last_capture_status,
+            "last_response_time": self.last_response_time,
+            "current_session": str(self.current_session_dir.name) if self.current_session_dir else None,
+            "photos_in_session": self.photos_in_session
+        }
     
     def cleanup(self):
-        """Cleanup display"""
+        """Cleanup MQTT service"""
         try:
-            if self.available and self.display:
-                # Show shutdown message
-                image = Image.new("1", (128, 32))
-                draw = ImageDraw.Draw(image)
-                draw.text((0, 8), "SYSTEM SHUTDOWN", fill=255)
-                draw.text((0, 18), "Goodbye!", fill=255)
-                self.display.image(image)
-                self.display.show()
-                time.sleep(1)
-                
-                # Clear display
-                self.display.fill(0)
-                self.display.show()
-                logger.info("OLED display cleanup completed")
+            if hasattr(self.client, 'loop_stop'):
+                self.client.loop_stop()
+            if hasattr(self.client, 'disconnect'):
+                self.client.disconnect()
+            logger.info("Slave MQTT service cleanup completed")
         except Exception as e:
-            logger.error(f"Error during OLED display cleanup: {e}")
+            logger.error(f"Error during slave MQTT cleanup: {e}")
+
 
 class HelmetCamera:
     def __init__(self, cam_number):
@@ -446,21 +425,54 @@ class HelmetCamera:
                 logger.error(f"Camera reinitialization failed: {reinit_error}")
             return None
     
+    def capture_with_filename(self, session_dir, filename):
+        """Capture a photo with specific filename"""
+        if not self._camera_initialized:
+            logger.error("Camera not initialized")
+            return None
+            
+        try:
+            # Ensure session directory exists
+            session_dir = Path(session_dir)
+            session_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create full file path
+            photo_path = session_dir / filename
+            
+            logger.debug(f"Capturing photo to: {photo_path}")
+            
+            # Capture the image
+            self.camera.capture_file(str(photo_path))
+            
+            # Verify file was created and has reasonable size
+            if photo_path.exists() and photo_path.stat().st_size > 1000:  # At least 1KB
+                logger.info(f"Photo captured successfully: {photo_path}")
+                return str(photo_path)
+            else:
+                logger.error("Photo file was not created or is too small")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to capture photo: {e}")
+            return None
+
+    
     def cleanup(self):
-        """Clean up camera resources"""
+        """Cleanup camera resources"""
         try:
             if self.camera and self._camera_initialized:
+                logger.debug("Stopping camera...")
                 self.camera.stop()
                 self.camera.close()
-                self.camera = None
                 self._camera_initialized = False
-                logger.info(f"Camera {self.cam_number} cleanup completed")
+                logger.info("Camera cleanup completed")
         except Exception as e:
             logger.error(f"Error during camera cleanup: {e}")
     
     def __enter__(self):
         """Context manager entry"""
         return self
+
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit with cleanup"""
