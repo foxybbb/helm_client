@@ -8,7 +8,7 @@
   "wifi_password": "TSIRIGA2024",
   "log_dir": "~/helmet_camera_logs",
   "mqtt": {
-    "broker_host": "192.168.1.144",
+    "broker_host": "192.168.4.1",
     "broker_port": 1883,
     "topic_commands": "helmet/commands",
     "topic_responses": "helmet/responses",

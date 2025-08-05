@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+ExecStartPre=/bin/bash -c 'until [ -e /dev/i2c-1 ]; do sleep 0.5; done'
 ExecStart=/usr/bin/python3 /home/rpi/helm_client/Master/master_helmet_system.py
 WorkingDirectory=/home/rpi/helm_client/Master/
 Restart=on-failure
