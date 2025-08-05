@@ -1,0 +1,90 @@
+# Helmet Camera Project .gitignore
+
+# Downloaded Photos Directory
+helmet_photos/
+*.jpg
+*.jpeg
+*.png
+
+# Log Files
+*.log
+*.log.*
+*_log.json
+*_logs/
+helmet_camera_logs/
+
+# Temporary Files
+*.tmp
+*.temp
+*.lock
+*.pid
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+.env
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Session Data
+session_*/
+*session*.json
+*imu_data*.json
+
+# Backup Files
+*.bak
+*.backup
+*.old
+
+# SSH Keys (just in case)
+*.pem
+*.key
+id_rsa*
+known_hosts
+
+# Transfer Scripts Temporary Files
+transfer_*.log
+transfer_*.log.*
+
+# Test Files
+test_photos/
+test_data/
+debug_*.sh 
