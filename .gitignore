@@ -89,6 +89,10 @@ cleanup_*.log
 delete_photos_*.log
 update_boards_repo_*.log
 
+# WiFi Scripts Log Files
+helmet_ap_setup.log
+helmet_wifi_connect.log
+
 # Test Files
 test_photos/
 test_data/
