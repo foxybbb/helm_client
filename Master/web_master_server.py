@@ -125,13 +125,16 @@ def api_send_command():
         count = data.get('count', 1)
         interval = data.get('interval', 5)
         
-        if not master_system or not hasattr(master_system, 'capture_sequence'):
+        if not master_system or not hasattr(master_system, 'capture_single_photo'):
             return jsonify({"error": "Master system not ready"}), 503
         
-        # Execute capture sequence in background thread
+        # Execute capture sequence using single photo captures
         def execute_capture():
             try:
-                master_system.capture_sequence(count, interval)
+                for i in range(count):
+                    command_id, success = master_system.capture_single_photo(f"web_sequence_{i+1}")
+                    if i < count - 1:  # Don't wait after last capture
+                        time.sleep(interval)
                 web_status["total_commands_sent"] += count
             except Exception as e:
                 logging.error(f"Error executing capture sequence: {e}")
@@ -150,6 +153,85 @@ def api_send_command():
         
     except Exception as e:
         return jsonify({"error": f"Failed to start capture: {e}"}), 500
+
+@app.route('/api/master/single_capture', methods=['POST'])
+def api_single_capture():
+    """API endpoint for single photo capture with extra session info"""
+    global master_system
+    
+    try:
+        if not master_system or not hasattr(master_system, 'web_capture_single_photo'):
+            return jsonify({"error": "Master system not ready"}), 503
+        
+        # Execute single capture in background thread
+        result = {"command_id": None, "success": False, "error": None}
+        
+        def execute_single_capture():
+            try:
+                command_id, success = master_system.web_capture_single_photo()
+                result["command_id"] = command_id
+                result["success"] = success
+                web_status["total_commands_sent"] += 1
+            except Exception as e:
+                result["error"] = str(e)
+                logging.error(f"Error executing single capture: {e}")
+        
+        thread = threading.Thread(target=execute_single_capture, daemon=True)
+        thread.start()
+        thread.join(timeout=2)  # Wait briefly for result
+        
+        web_status["last_session"] = datetime.now().isoformat()
+        
+        if result["error"]:
+            return jsonify({"error": result["error"]}), 500
+        
+        return jsonify({
+            "status": "completed" if result["command_id"] else "failed",
+            "command_id": result["command_id"],
+            "master_success": result["success"],
+            "message": f"Single photo capture {'completed' if result['command_id'] else 'failed'}"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to execute single capture: {e}"}), 500
+
+@app.route('/api/master/triggers/status')
+def api_triggers_status():
+    """API endpoint for automatic capture triggers status"""
+    global master_system, config
+    
+    try:
+        if not master_system or not hasattr(master_system, 'auto_capture'):
+            return jsonify({"error": "Master system not ready"}), 503
+        
+        triggers_config = config.get("capture_triggers", {})
+        auto_capture = master_system.auto_capture
+        
+        status = {
+            "timer": {
+                "enabled": triggers_config.get("timer_enabled", False),
+                "running": auto_capture.timer_running,
+                "interval_seconds": triggers_config.get("timer_interval_seconds", 5)
+            },
+            "imu_movement": {
+                "enabled": triggers_config.get("imu_movement_enabled", False),
+                "running": auto_capture.imu_monitoring,
+                "threshold": triggers_config.get("imu_movement_threshold", 2.0),
+                "cooldown_seconds": triggers_config.get("imu_movement_cooldown_seconds", 2.0),
+                "sensor_available": master_system.imu_sensor.available if hasattr(master_system, 'imu_sensor') else False
+            },
+            "gpio_pin20": {
+                "enabled": triggers_config.get("gpio_pin20_enabled", False),
+                "running": auto_capture.gpio20_monitoring,
+                "pin": triggers_config.get("gpio_pin20_pin", 20),
+                "initialized": auto_capture.gpio20_initialized
+            }
+        }
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to get triggers status: {e}"}), 500
 
 @app.route('/api/master/statistics')
 def api_master_statistics():
@@ -265,8 +347,16 @@ def create_master_templates():
                 <button onclick="startCapture()" class="btn btn-success">Start Capture</button>
                 <button onclick="quickCapture(1)" class="btn btn-primary">Quick Single</button>
                 <button onclick="quickCapture(3)" class="btn btn-warning">Quick Burst (3)</button>
+                <button onclick="singleWebCapture()" class="btn btn-danger">Web Single Photo</button>
             </div>
             <div id="captureStatus"></div>
+        </div>
+        
+        <div class="card">
+            <h2>Automatic Triggers Status</h2>
+            <div id="triggersStatus" class="status-grid">
+                <!-- Will be populated by JavaScript -->
+            </div>
         </div>
         
         <div class="card">
@@ -402,6 +492,25 @@ def create_master_templates():
                 document.getElementById('slavesStatus').innerHTML = slavesHtml || '<p>No slaves configured</p>';
             }
             
+            // Triggers status
+            const triggersStatus = await fetchJSON('/api/master/triggers/status');
+            if (triggersStatus) {
+                document.getElementById('triggersStatus').innerHTML = `
+                    <div class="status-item ${triggersStatus.timer.enabled ? (triggersStatus.timer.running ? 'status-online' : 'status-warning') : 'status-offline'}">
+                        <strong>Timer Capture</strong><br>
+                        ${triggersStatus.timer.enabled ? (triggersStatus.timer.running ? `Running (${triggersStatus.timer.interval_seconds}s)` : 'Enabled (Stopped)') : 'Disabled'}
+                    </div>
+                    <div class="status-item ${triggersStatus.imu_movement.enabled ? (triggersStatus.imu_movement.running ? 'status-online' : 'status-warning') : 'status-offline'}">
+                        <strong>Movement Detection</strong><br>
+                        ${triggersStatus.imu_movement.enabled ? (triggersStatus.imu_movement.sensor_available ? (triggersStatus.imu_movement.running ? `Running (${triggersStatus.imu_movement.threshold} m/s²)` : 'Enabled (Stopped)') : 'No IMU Sensor') : 'Disabled'}
+                    </div>
+                    <div class="status-item ${triggersStatus.gpio_pin20.enabled ? (triggersStatus.gpio_pin20.running ? 'status-online' : 'status-warning') : 'status-offline'}">
+                        <strong>GPIO Pin ${triggersStatus.gpio_pin20.pin}</strong><br>
+                        ${triggersStatus.gpio_pin20.enabled ? (triggersStatus.gpio_pin20.running ? `Running (${triggersStatus.gpio_pin20.initialized ? 'Initialized' : 'Not Initialized'})` : 'Enabled (Stopped)') : 'Disabled'}
+                    </div>
+                `;
+            }
+            
             // Logs
             const logs = await fetchJSON('/api/master/logs');
             if (logs && logs.lines) {
@@ -435,6 +544,25 @@ def create_master_templates():
         async function quickCapture(count) {
             document.getElementById('photoCount').value = count;
             await startCapture();
+        }
+        
+        async function singleWebCapture() {
+            const result = await fetchJSON('/api/master/single_capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            
+            if (result) {
+                if (result.error) {
+                    document.getElementById('captureStatus').innerHTML = `<div style="color: red;">ERROR: ${result.error}</div>`;
+                } else {
+                    document.getElementById('captureStatus').innerHTML = `<div style="color: green;">SUCCESS: ${result.message} (Command ID: ${result.command_id})</div>`;
+                    setTimeout(() => {
+                        document.getElementById('captureStatus').innerHTML = '';
+                    }, 5000);
+                }
+            }
         }
         
         function viewSlaveDetails(slaveId) {

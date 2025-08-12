@@ -6,6 +6,7 @@ Generates GPIO pulses and sends MQTT commands to slave helmet cameras.
 Collects and logs responses from all connected slaves.
 Includes web interface for monitoring and control.
 Master also captures photos as cam1 and saves IMU data.
+Supports automatic capture triggers: timer, IMU movement, GPIO pin 20.
 """
 
 import time
@@ -15,6 +16,7 @@ import sys
 import json
 import threading
 import datetime
+import math
 from pathlib import Path
 from typing import Dict, List
 import RPi.GPIO as GPIO
@@ -23,6 +25,7 @@ from camera.factories import ConfigLoader
 from camera.utils import setup_logging
 from camera.services import MasterIMUSensor, HelmetCamera, JsonLogger, MasterOLEDDisplay
 from web_master_server import setup_master_web_server, run_master_web_server
+
 
 logger = logging.getLogger(__name__)
 
@@ -447,6 +450,204 @@ class GPIOPulseGenerator:
             logger.error(f"Error during GPIO cleanup: {e}")
 
 
+class AutoCaptureManager:
+    """Manages automatic photo capture triggers"""
+    
+    def __init__(self, config, master_system):
+        self.config = config
+        self.master_system = master_system
+        self.triggers_config = config.get("capture_triggers", {})
+        
+        # Timer-based capture
+        self.timer_thread = None
+        self.timer_running = False
+        
+        # IMU movement detection
+        self.imu_monitor_thread = None
+        self.imu_monitoring = False
+        self.last_imu_capture = 0
+        self.last_acceleration = None
+        
+        # GPIO pin 20 monitoring
+        self.gpio20_thread = None
+        self.gpio20_monitoring = False
+        self.gpio20_pin = self.triggers_config.get("gpio_pin20_pin", 20)
+        self.gpio20_initialized = False
+        
+        logger.info(f"AutoCaptureManager initialized with config: {self.triggers_config}")
+    
+    def start_all_triggers(self):
+        """Start all enabled capture triggers"""
+        logger.info("Starting automatic capture triggers...")
+        
+        if self.triggers_config.get("timer_enabled", False):
+            self.start_timer_capture()
+        
+        if self.triggers_config.get("imu_movement_enabled", False):
+            self.start_imu_monitoring()
+        
+        if self.triggers_config.get("gpio_pin20_enabled", False):
+            self.start_gpio20_monitoring()
+    
+    def stop_all_triggers(self):
+        """Stop all capture triggers"""
+        logger.info("Stopping automatic capture triggers...")
+        
+        self.stop_timer_capture()
+        self.stop_imu_monitoring()
+        self.stop_gpio20_monitoring()
+    
+    def start_timer_capture(self):
+        """Start timer-based automatic capture"""
+        if self.timer_running:
+            return
+            
+        interval = self.triggers_config.get("timer_interval_seconds", 5)
+        self.timer_running = True
+        
+        def timer_capture_loop():
+            logger.info(f"Timer capture started - interval: {interval}s")
+            while self.timer_running and self.master_system.running:
+                try:
+                    logger.info("Timer trigger - capturing photo")
+                    self.master_system.capture_single_photo("timer_trigger")
+                    time.sleep(interval)
+                except Exception as e:
+                    logger.error(f"Error in timer capture: {e}")
+                    time.sleep(5)  # Wait before retrying
+        
+        self.timer_thread = threading.Thread(target=timer_capture_loop, daemon=True)
+        self.timer_thread.start()
+        logger.info("Timer-based capture trigger started")
+    
+    def stop_timer_capture(self):
+        """Stop timer-based capture"""
+        self.timer_running = False
+        if self.timer_thread and self.timer_thread.is_alive():
+            self.timer_thread.join(timeout=2)
+        logger.info("Timer capture stopped")
+    
+    def start_imu_monitoring(self):
+        """Start IMU movement detection"""
+        if not self.master_system.imu_sensor.available:
+            logger.warning("IMU sensor not available - movement trigger disabled")
+            return
+            
+        if self.imu_monitoring:
+            return
+            
+        self.imu_monitoring = True
+        
+        def imu_monitor_loop():
+            logger.info("IMU movement monitoring started")
+            threshold = self.triggers_config.get("imu_movement_threshold", 2.0)
+            cooldown = self.triggers_config.get("imu_movement_cooldown_seconds", 2.0)
+            
+            while self.imu_monitoring and self.master_system.running:
+                try:
+                    current_time = time.time()
+                    if current_time - self.last_imu_capture < cooldown:
+                        time.sleep(0.1)
+                        continue
+                    
+                    imu_data = self.master_system.imu_sensor.read_data()
+                    if not imu_data.get("available", False):
+                        time.sleep(1)
+                        continue
+                    
+                    # Calculate acceleration magnitude
+                    accel = imu_data.get("acceleration", {})
+                    current_acceleration = math.sqrt(
+                        accel.get("x", 0)**2 + 
+                        accel.get("y", 0)**2 + 
+                        accel.get("z", 0)**2
+                    )
+                    
+                    if self.last_acceleration is not None:
+                        acceleration_change = abs(current_acceleration - self.last_acceleration)
+                        
+                        if acceleration_change > threshold:
+                            logger.info(f"Movement detected - acceleration change: {acceleration_change:.2f} m/s²")
+                            self.master_system.capture_single_photo("movement_trigger")
+                            self.last_imu_capture = current_time
+                    
+                    self.last_acceleration = current_acceleration
+                    time.sleep(0.1)  # 10Hz monitoring
+                    
+                except Exception as e:
+                    logger.error(f"Error in IMU monitoring: {e}")
+                    time.sleep(1)
+        
+        self.imu_monitor_thread = threading.Thread(target=imu_monitor_loop, daemon=True)
+        self.imu_monitor_thread.start()
+        logger.info("IMU movement detection started")
+    
+    def stop_imu_monitoring(self):
+        """Stop IMU movement detection"""
+        self.imu_monitoring = False
+        if self.imu_monitor_thread and self.imu_monitor_thread.is_alive():
+            self.imu_monitor_thread.join(timeout=2)
+        logger.info("IMU movement monitoring stopped")
+    
+    def start_gpio20_monitoring(self):
+        """Start GPIO pin 20 monitoring"""
+        if self.gpio20_monitoring:
+            return
+            
+        try:
+            # Setup GPIO pin 20 with pull-up resistor
+            GPIO.setwarnings(False)
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self.gpio20_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            self.gpio20_initialized = True
+            logger.info(f"GPIO pin {self.gpio20_pin} initialized with pull-up")
+        except Exception as e:
+            logger.error(f"Failed to initialize GPIO pin {self.gpio20_pin}: {e}")
+            return
+        
+        self.gpio20_monitoring = True
+        
+        def gpio20_monitor_loop():
+            logger.info(f"GPIO pin {self.gpio20_pin} monitoring started")
+            last_state = GPIO.input(self.gpio20_pin)
+            
+            while self.gpio20_monitoring and self.master_system.running:
+                try:
+                    current_state = GPIO.input(self.gpio20_pin)
+                    
+                    # Trigger on falling edge (pull-up means LOW when pressed)
+                    if last_state == GPIO.HIGH and current_state == GPIO.LOW:
+                        logger.info(f"GPIO pin {self.gpio20_pin} trigger detected")
+                        self.master_system.capture_single_photo("gpio20_trigger")
+                        time.sleep(0.5)  # Debounce
+                    
+                    last_state = current_state
+                    time.sleep(0.05)  # 20Hz polling
+                    
+                except Exception as e:
+                    logger.error(f"Error in GPIO pin {self.gpio20_pin} monitoring: {e}")
+                    time.sleep(1)
+        
+        self.gpio20_thread = threading.Thread(target=gpio20_monitor_loop, daemon=True)
+        self.gpio20_thread.start()
+        logger.info(f"GPIO pin {self.gpio20_pin} monitoring started")
+    
+    def stop_gpio20_monitoring(self):
+        """Stop GPIO pin 20 monitoring"""
+        self.gpio20_monitoring = False
+        if self.gpio20_thread and self.gpio20_thread.is_alive():
+            self.gpio20_thread.join(timeout=2)
+        
+        if self.gpio20_initialized:
+            try:
+                GPIO.cleanup(self.gpio20_pin)
+                logger.info(f"GPIO pin {self.gpio20_pin} cleanup completed")
+            except Exception as e:
+                logger.error(f"Error cleaning up GPIO pin {self.gpio20_pin}: {e}")
+        
+        logger.info("GPIO pin 20 monitoring stopped")
+
+
 class MasterHelmetSystem:
     """Main master system coordinator"""
     
@@ -467,6 +668,9 @@ class MasterHelmetSystem:
         # Display update thread
         self.display_thread = None
         self.display_running = False
+        
+        # Auto capture manager
+        self.auto_capture = AutoCaptureManager(config, self)
         
         self.running = False
         
@@ -494,6 +698,9 @@ class MasterHelmetSystem:
         
         # Start OLED display updates
         self._start_display_updates()
+        
+        # Start automatic capture triggers
+        self.auto_capture.start_all_triggers()
         
         self.running = True
     
@@ -557,23 +764,21 @@ class MasterHelmetSystem:
         self.display_thread.start()
         logger.info("OLED display update thread started")
     
-    def capture_sequence(self, count=1, interval_seconds=5):
-        """Execute a sequence of synchronized captures"""
-        logger.info(f"Starting capture sequence: {count} captures, {interval_seconds}s interval")
-        
-        for i in range(count):
-            logger.info(f"Capture {i+1}/{count}")
+    def capture_single_photo(self, trigger_source="manual"):
+        """Capture a single photo from all cameras"""
+        try:
+            logger.info(f"Starting single photo capture - trigger: {trigger_source}")
             
             # Generate GPIO pulse for hardware synchronization
             pulse_success = self.gpio_generator.generate_pulse()
             if not pulse_success:
-                logger.error(f"Failed to generate pulse for capture {i+1}")
+                logger.error("Failed to generate pulse for single capture")
             
             # Send MQTT command to slaves
             command_id = self.mqtt_service.send_capture_command(
                 exposure_us=self.config["exposure_us"],
                 timeout_ms=self.config["timeout_ms"],
-                notes=self.mqtt_service.session_name
+                notes=f"{self.mqtt_service.session_name}_{trigger_source}"
             )
             
             # Capture master photo (cam1) simultaneously
@@ -592,7 +797,7 @@ class MasterHelmetSystem:
                     else:
                         self.session_logger.log_failure("master_capture_failed")
                         self.mqtt_service.stats["master_capture_failures"] += 1
-                        logger.error(f"Master photo capture failed for sequence {i+1}")
+                        logger.error("Master photo capture failed")
                         
             except Exception as e:
                 self.session_logger.log_failure(f"master_capture_error: {e}")
@@ -608,31 +813,43 @@ class MasterHelmetSystem:
                     logger.error(f"Failed to save IMU data for command {command_id}: {e}")
             
             if command_id:
-                logger.info(f"Capture command {command_id} sent to slaves, master capture: {'success' if master_photo_success else 'failed'}")
+                logger.info(f"Capture command {command_id} sent to slaves ({trigger_source}), master capture: {'success' if master_photo_success else 'failed'}")
                 
                 # Show capture status on OLED display
                 if self.oled_display.available:
                     self.oled_display.show_capture_status(command_id, master_photo_success)
             else:
-                logger.error(f"Failed to send capture command for capture {i+1}")
+                logger.error(f"Failed to send capture command ({trigger_source})")
                 
                 # Show error on OLED display
                 if self.oled_display.available:
-                    self.oled_display.show_error_message(f"Failed to send command {i+1}")
+                    self.oled_display.show_error_message(f"Failed command {trigger_source}")
             
             # Send polling message periodically
             self.mqtt_service.send_poll_message()
             
-            # Wait between captures (except for last one)
-            if i < count - 1:
-                logger.info(f"Waiting {interval_seconds}s before next capture...")
-                time.sleep(interval_seconds)
+            return command_id, master_photo_success
+            
+        except Exception as e:
+            logger.error(f"Error in single photo capture ({trigger_source}): {e}")
+            return None, False
+    
+    def web_capture_single_photo(self):
+        """Web interface trigger for single photo with extra session info"""
+        logger.info("Web interface single photo capture requested")
         
-        logger.info("Capture sequence completed")
+        # Create a special session note for web captures
+        now = datetime.datetime.now()
+        web_session_note = f"web_single_{now.strftime('%H%M%S')}"
+        
+        return self.capture_single_photo(f"web_{web_session_note}")
     
     def cleanup(self):
         """Cleanup master system"""
         self.running = False
+        
+        # Stop automatic capture triggers
+        self.auto_capture.stop_all_triggers()
         
         # Stop display updates
         self.display_running = False
@@ -662,7 +879,7 @@ def signal_handler(signum, frame):
 
 
 def main():
-    """Main application entry point for master"""
+    """Main application entry point for master - automatic operation"""
     
     # Setup signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -704,63 +921,22 @@ def main():
         logger.info(f"Master web interface started on port {web_port}")
         logger.info(f"Open http://<master-ip>:{web_port} in your browser to control the system")
         
-        logger.info("Master system ready. Starting interactive mode...")
-        logger.info("Commands: 'capture [count] [interval]', 'stats', or 'quit'")
+        logger.info("Master system running automatically with configured triggers:")
+        triggers = config.get("capture_triggers", {})
+        if triggers.get("timer_enabled", False):
+            logger.info(f"  - Timer capture: every {triggers.get('timer_interval_seconds', 5)}s")
+        if triggers.get("imu_movement_enabled", False):
+            logger.info(f"  - Movement detection: threshold {triggers.get('imu_movement_threshold', 2.0)} m/s²")
+        if triggers.get("gpio_pin20_enabled", False):
+            logger.info(f"  - GPIO pin {triggers.get('gpio_pin20_pin', 20)} trigger enabled")
+        logger.info("  - Web interface single capture available")
         
-        # Interactive command loop
+        # Keep the main thread alive
         try:
             while master_system.running:
-                try:
-                    user_input = input("master> ").strip().lower()
-                    
-                    if user_input == "quit" or user_input == "exit":
-                        break
-                    elif user_input.startswith("capture"):
-                        parts = user_input.split()
-                        count = int(parts[1]) if len(parts) > 1 else 1
-                        interval = float(parts[2]) if len(parts) > 2 else 5.0
-                        master_system.capture_sequence(count, interval)
-                    elif user_input == "stats":
-                        stats = master_system.mqtt_service.get_stats()
-                        board_stats = master_system.mqtt_service.get_board_stats()
-                        print(f"\n=== MASTER SYSTEM STATISTICS ===")
-                        print(f"Global Stats:")
-                        print(f"  Total commands sent: {stats['total_commands']}")
-                        print(f"  Successful responses: {stats['successful_responses']}")
-                        print(f"  Failed responses: {stats['failed_responses']}")
-                        print(f"  Timeout responses: {stats['timeout_responses']}")
-                        print(f"  Master captures: {stats['master_captures']}")
-                        print(f"  Master capture failures: {stats['master_capture_failures']}")
-                        print(f"  Pending commands: {len(master_system.mqtt_service.pending_commands)}")
-                        
-                        print(f"\nBoard-specific Stats:")
-                        for board_id, board_stat in board_stats.items():
-                            print(f"  {board_id}:")
-                            print(f"    Status: {board_stat['status']}")
-                            print(f"    Responses: {board_stat['successful_responses']}/{board_stat['total_commands']}")
-                            print(f"    Failures: {board_stat['failed_responses']}")
-                            print(f"    Timeouts: {board_stat['timeout_responses']}")
-                            print(f"    Avg response time: {board_stat['avg_response_time_ms']:.1f}ms")
-                            if board_stat['last_seen']:
-                                print(f"    Last seen: {board_stat['last_seen']}")
-                        print()
-                    elif user_input == "help":
-                        print("Available commands:")
-                        print("  capture [count] [interval] - Take photos (default: 1 photo, 5s interval)")
-                        print("  stats - Show system statistics")
-                        print("  quit/exit - Shutdown system")
-                        print("  help - Show this help")
-                    else:
-                        print("Unknown command. Type 'help' for available commands.")
-                        
-                except EOFError:
-                    # Handle Ctrl+D
-                    break
-                except ValueError as e:
-                    print(f"Invalid input: {e}")
-                except Exception as e:
-                    logger.error(f"Error processing command: {e}")
-                    
+                time.sleep(1)
+                # Optional: Check system health, log status, etc.
+                
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received, shutting down...")
         except Exception as e:

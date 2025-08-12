@@ -12,8 +12,17 @@
   "min_high_duration": 3000,
   "wifi_ssid": "TSI2024",
   "wifi_password": "TSIRIGA2024",
+  "capture_triggers": {
+    "timer_enabled": false,
+    "timer_interval_seconds": 5,
+    "imu_movement_enabled": false,
+    "imu_movement_threshold": 2.0,
+    "imu_movement_cooldown_seconds": 2.0,
+    "gpio_pin20_enabled": true,
+    "gpio_pin20_pin": 20
+  },
   "mqtt": {
-    "broker_host": "192.168.1.144",
+    "broker_host": "192.168.4.1",
     "broker_port": 1883,
     "topic_commands": "helmet/commands",
     "topic_responses": "helmet/responses",
@@ -22,6 +31,10 @@
   },
   "slaves": [
     "rpihelmet2",
-    "rpihelmet3"
+    "rpihelmet3",
+    "rpihelmet4",
+    "rpihelmet5",
+    "rpihelmet6",
+    "rpihelmet7"
   ]
 } 
