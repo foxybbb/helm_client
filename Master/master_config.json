@@ -1,7 +1,7 @@
 {
   "master_id": "helm_master",
   "gpio_pin": 17,
-  "buzzer_pin": 12,
+  "buzzer_pin": 18,
   "startup_delay": 5,
   "pulse_duration_ms": 100,
   "pulse_interval_ms": 1000,
@@ -20,10 +20,10 @@
     "imu_movement_threshold": 2.0,
     "imu_movement_cooldown_seconds": 2.0,
     "gpio_pin20_enabled": true,
-    "gpio_pin20_pin": 20
+    "gpio_pin20_pin": 16
   },
   "mqtt": {
-    "broker_host": "192.168.4.11",
+    "broker_host": "192.168.4.1",
     "broker_port": 1883,
     "topic_commands": "helmet/commands",
     "topic_responses": "helmet/responses",
