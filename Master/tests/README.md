@@ -11,10 +11,16 @@ This folder contains test programs and documentation for the Master board GPIO t
 ### Combined Tests  
 - **`test_buzzer_gpio20.py`** - Tests both GPIO trigger and buzzer functionality
 
+### IMU Trigger Tests
+- **`test_imu_simple.py`** - Simple IMU sensor verification (10s)
+- **`debug_imu_trigger.py`** - Comprehensive IMU debug suite with menu
+- **`debug_imu_integration.py`** - Test IMU integration with Master system
+
 ## 📚 Documentation
 
 - **`GPIO16_TEST_README.md`** - Complete documentation for GPIO 16 testing
 - **`GPIO20_BUZZER_README.md`** - Implementation details for GPIO triggers and buzzer
+- **`IMU_DEBUG_README.md`** - Comprehensive IMU troubleshooting and debug guide
 
 ## 🚀 Quick Start
 
@@ -34,6 +40,18 @@ python3 test_gpio16_trigger.py
 ```bash
 cd tests
 python3 test_buzzer_gpio20.py
+```
+
+### Test IMU Sensor (Quick):
+```bash
+cd tests
+python3 test_imu_simple.py
+```
+
+### Debug IMU Triggers (Comprehensive):
+```bash
+cd tests
+python3 debug_imu_trigger.py
 ```
 
 ## 🔧 Hardware Setup
