@@ -1,7 +1,7 @@
 {
   "master_id": "helm_master",
   "gpio_pin": 17,
-  "buzzer_pin": 18,
+  "buzzer_pin": 12,
   "startup_delay": 5,
   "pulse_duration_ms": 100,
   "pulse_interval_ms": 1000,

@@ -556,6 +556,8 @@ class AutoCaptureManager:
         self.gpio_trigger_pin = self.triggers_config.get("gpio_pin20_pin", 16)
         self.gpio_trigger_initialized = False
         
+        logger.info(f"AutoCaptureManager: GPIO trigger pin set to {self.gpio_trigger_pin}")
+        
         logger.info(f"AutoCaptureManager initialized with config: {self.triggers_config}")
     
     def start_all_triggers(self):
@@ -673,7 +675,10 @@ class AutoCaptureManager:
     
     def start_gpio_trigger_monitoring(self):
         """Start GPIO trigger pin monitoring - triggers photos every 5 seconds when LOW"""
+        logger.info(f"Starting GPIO trigger monitoring on pin {self.gpio_trigger_pin}")
+        
         if self.gpio_trigger_monitoring:
+            logger.warning("GPIO trigger monitoring already running")
             return
             
         try:
@@ -682,7 +687,12 @@ class AutoCaptureManager:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.gpio_trigger_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             self.gpio_trigger_initialized = True
-            logger.info(f"GPIO pin {self.gpio_trigger_pin} initialized with pull-up for continuous monitoring")
+            
+            # Test initial state
+            initial_state = GPIO.input(self.gpio_trigger_pin)
+            state_text = "LOW (triggered)" if initial_state == GPIO.LOW else "HIGH (idle)"
+            logger.info(f"GPIO pin {self.gpio_trigger_pin} initialized with pull-up, initial state: {state_text}")
+            
         except Exception as e:
             logger.error(f"Failed to initialize GPIO pin {self.gpio_trigger_pin}: {e}")
             return

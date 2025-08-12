@@ -219,9 +219,9 @@ def api_triggers_status():
             },
             "gpio_pin20": {
                 "enabled": triggers_config.get("gpio_pin20_enabled", False),
-                "running": auto_capture.gpio20_monitoring,
-                "pin": triggers_config.get("gpio_pin20_pin", 20),
-                "initialized": auto_capture.gpio20_initialized
+                "running": auto_capture.gpio_trigger_monitoring,
+                "pin": triggers_config.get("gpio_pin20_pin", 16),
+                "initialized": auto_capture.gpio_trigger_initialized
             }
         }
         
