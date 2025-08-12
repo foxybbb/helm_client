@@ -1,5 +1,5 @@
 {
-  "client_id": "rpihelmet3",
+  "client_id": "rpihelmet8",
   "gpio_pin": 17,
   "startup_delay": 5,
   "min_high_duration": 60,
@@ -8,7 +8,7 @@
   "wifi_password": "TSIRIGA2024",
   "log_dir": "~/helmet_camera_logs",
   "mqtt": {
-    "broker_host": "192.168.1.144",
+    "broker_host": "192.168.1.11",
     "broker_port": 1883,
     "topic_commands": "helmet/commands",
     "topic_responses": "helmet/responses",
