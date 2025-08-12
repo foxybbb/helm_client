@@ -76,17 +76,36 @@ python3 test_oled_display.py
 - Current date (MM/DD)
 - Pending commands count
 
+### 📷 **Screen 4: Capture Boards Status**
+- How many boards respond correctly during captures
+- Overall success rate across all boards
+- Master camera (CAM1) capture count
+- Total captures across all boards
+
+### 🔄 **Screen 5: IMU Trigger Status**
+- IMU sensor availability and monitoring status
+- Movement threshold setting (m/s²)
+- Cooldown timer (30 minutes) with remaining time
+- Current trigger state (IDLE/RUN)
+
+### 🎯 **Screen 6: Trigger Overview**
+- Timer trigger status (OFF/ON/RUN)
+- IMU movement trigger status (OFF/ON/RUN)
+- GPIO trigger status with pin number (OFF/ON/RUN)
+- Web interface availability
+
 ### 🔄 **Special Displays**
-- **Capture Status**: Shows during photo capture operations
+- **Extended Startup Sequence**: Multi-screen startup with system initialization steps
+- **Capture Status**: Shows during individual photo capture operations
+- **Sequence Progress**: Shows progress during multi-photo sequences
 - **Error Messages**: Displays system errors and warnings
-- **Startup Message**: Shows during system initialization
 - **Shutdown Message**: Shows during system shutdown
 
 ## Display Behavior
 
 ### Auto-Cycling
-- **Update Interval**: Every 2 seconds
-- **Screen Rotation**: Cycles through 3 main screens automatically
+- **Update Interval**: Every 3 seconds
+- **Screen Rotation**: Cycles through 6 main screens automatically
 - **Background Updates**: Runs in separate thread, non-blocking
 
 ### Event-Driven Updates

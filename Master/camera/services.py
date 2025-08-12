@@ -144,9 +144,9 @@ class MasterOLEDDisplay:
         self.available = False
         self.i2c_address = i2c_address
         self.current_screen = 0
-        self.max_screens = 3
+        self.max_screens = 6  # Added more screens
         self.last_update = 0
-        self.update_interval = 2.0  # Update every 2 seconds
+        self.update_interval = 3.0  # Update every 3 seconds for more screens
         self._setup_display()
     
     def _setup_display(self):
@@ -180,20 +180,31 @@ class MasterOLEDDisplay:
             return
             
         try:
-            # Create image for drawing
-            image = Image.new("1", (128, 32))
-            draw = ImageDraw.Draw(image)
+            # Show multiple startup screens
+            startup_screens = [
+                ["MASTER HELMET", "SYSTEM STARTING", "Please wait..."],
+                ["INITIALIZING", "GPIO Pins", "Buzzer & Triggers"],
+                ["LOADING", "Camera Systems", "IMU & MQTT"],
+                ["READY TO", "CAPTURE PHOTOS", "Check web interface"]
+            ]
             
-            # Draw startup message
-            draw.text((0, 0), "MASTER HELMET", fill=255)
-            draw.text((0, 10), "SYSTEM STARTING", fill=255)
-            draw.text((0, 20), "Please wait...", fill=255)
+            for screen in startup_screens:
+                image = Image.new("1", (128, 32))
+                draw = ImageDraw.Draw(image)
+                
+                # Draw startup screen
+                draw.text((0, 0), screen[0], fill=255)
+                draw.text((0, 10), screen[1], fill=255)
+                draw.text((0, 20), screen[2], fill=255)
+                
+                # Display image
+                self.display.image(image)
+                self.display.show()
+                
+                # Wait between screens
+                time.sleep(1.5)
             
-            # Display image
-            self.display.image(image)
-            self.display.show()
-            
-            logger.debug("Startup message displayed on OLED")
+            logger.debug("Extended startup sequence displayed on OLED")
             
         except Exception as e:
             logger.error(f"Failed to show startup message: {e}")
@@ -215,6 +226,12 @@ class MasterOLEDDisplay:
                 self._show_statistics(master_system)
             elif self.current_screen == 2:
                 self._show_session_info(master_system)
+            elif self.current_screen == 3:
+                self._show_capture_boards_status(master_system)
+            elif self.current_screen == 4:
+                self._show_imu_trigger_status(master_system)
+            elif self.current_screen == 5:
+                self._show_trigger_overview(master_system)
             
             # Cycle to next screen
             self.current_screen = (self.current_screen + 1) % self.max_screens
@@ -294,6 +311,133 @@ class MasterOLEDDisplay:
         self.display.image(image)
         self.display.show()
     
+    def _show_capture_boards_status(self, master_system):
+        """Show how many boards are responding correctly during captures"""
+        image = Image.new("1", (128, 32))
+        draw = ImageDraw.Draw(image)
+        
+        # Get board statistics
+        board_stats = master_system.mqtt_service.get_board_stats()
+        total_boards = len(board_stats) + 1  # +1 for master
+        
+        # Count responsive boards (online + recent successful captures)
+        responsive_boards = 1  # Master counts as 1
+        recent_successes = 0
+        total_captures = 0
+        
+        for board_id, stats in board_stats.items():
+            total_captures += stats.get("total_commands", 0)
+            recent_successes += stats.get("successful_responses", 0)
+            
+            # Consider board responsive if:
+            # 1. Status is online, OR
+            # 2. Has successful responses and low failure rate
+            if stats.get("status") == "online":
+                responsive_boards += 1
+            elif stats.get("successful_responses", 0) > 0:
+                failure_rate = stats.get("failed_responses", 0) / max(stats.get("total_commands", 1), 1)
+                if failure_rate < 0.3:  # Less than 30% failure rate
+                    responsive_boards += 1
+        
+        # Calculate overall success rate
+        total_responses = sum(stats.get("successful_responses", 0) + stats.get("failed_responses", 0) + 
+                            stats.get("timeout_responses", 0) for stats in board_stats.values())
+        overall_success_rate = int((recent_successes / total_responses * 100)) if total_responses > 0 else 0
+        
+        # Master camera stats
+        master_stats = master_system.mqtt_service.get_stats()
+        master_captures = master_stats.get("master_captures", 0)
+        
+        # Draw capture boards status
+        draw.text((0, 0), f"CAPTURE STATUS", fill=255)
+        draw.text((0, 8), f"BOARDS: {responsive_boards}/{total_boards} OK", fill=255)
+        draw.text((0, 16), f"SUCCESS: {overall_success_rate}%", fill=255)
+        draw.text((0, 24), f"CAM1: {master_captures} TOTAL: {total_captures}", fill=255)
+        
+        self.display.image(image)
+        self.display.show()
+    
+    def _show_imu_trigger_status(self, master_system):
+        """Show IMU trigger status and cooldown information"""
+        image = Image.new("1", (128, 32))
+        draw = ImageDraw.Draw(image)
+        
+        # Get IMU and trigger configuration
+        imu_available = master_system.imu_sensor.available if hasattr(master_system, 'imu_sensor') else False
+        auto_capture = master_system.auto_capture if hasattr(master_system, 'auto_capture') else None
+        
+        if auto_capture:
+            imu_enabled = auto_capture.triggers_config.get("imu_movement_enabled", False)
+            imu_monitoring = auto_capture.imu_monitoring if hasattr(auto_capture, 'imu_monitoring') else False
+            cooldown_seconds = auto_capture.triggers_config.get("imu_movement_cooldown_seconds", 1800.0)
+            threshold = auto_capture.triggers_config.get("imu_movement_threshold", 2.0)
+            
+            # Calculate time since last IMU capture
+            last_capture_time = getattr(auto_capture, 'last_imu_capture', 0)
+            time_since_capture = time.time() - last_capture_time if last_capture_time > 0 else cooldown_seconds
+            cooldown_remaining = max(0, cooldown_seconds - time_since_capture)
+            
+            # Convert cooldown to minutes
+            cooldown_minutes = int(cooldown_remaining / 60)
+            cooldown_mins_total = int(cooldown_seconds / 60)
+        else:
+            imu_enabled = False
+            imu_monitoring = False
+            cooldown_minutes = 0
+            cooldown_mins_total = 30
+            threshold = 2.0
+        
+        # Draw IMU status
+        imu_status = "ON" if (imu_available and imu_enabled) else "OFF"
+        monitor_status = "RUN" if imu_monitoring else "IDLE"
+        
+        draw.text((0, 0), f"IMU TRIGGER", fill=255)
+        draw.text((0, 8), f"STATUS: {imu_status} ({monitor_status})", fill=255)
+        draw.text((0, 16), f"THRESH: {threshold} m/s²", fill=255)
+        draw.text((0, 24), f"COOLDOWN: {cooldown_minutes}/{cooldown_mins_total}min", fill=255)
+        
+        self.display.image(image)
+        self.display.show()
+    
+    def _show_trigger_overview(self, master_system):
+        """Show overview of all trigger systems"""
+        image = Image.new("1", (128, 32))
+        draw = ImageDraw.Draw(image)
+        
+        auto_capture = master_system.auto_capture if hasattr(master_system, 'auto_capture') else None
+        
+        if auto_capture:
+            # Timer trigger
+            timer_enabled = auto_capture.triggers_config.get("timer_enabled", False)
+            timer_running = getattr(auto_capture, 'timer_running', False)
+            timer_status = "RUN" if timer_running else ("ON" if timer_enabled else "OFF")
+            
+            # IMU trigger  
+            imu_enabled = auto_capture.triggers_config.get("imu_movement_enabled", False)
+            imu_monitoring = getattr(auto_capture, 'imu_monitoring', False)
+            imu_status = "RUN" if imu_monitoring else ("ON" if imu_enabled else "OFF")
+            
+            # GPIO trigger
+            gpio_enabled = auto_capture.triggers_config.get("gpio_pin20_enabled", False)
+            gpio_monitoring = getattr(auto_capture, 'gpio_trigger_monitoring', False)
+            gpio_pin = auto_capture.triggers_config.get("gpio_pin20_pin", 16)
+            gpio_status = "RUN" if gpio_monitoring else ("ON" if gpio_enabled else "OFF")
+        else:
+            timer_status = "OFF"
+            imu_status = "OFF"
+            gpio_status = "OFF"
+            gpio_pin = 16
+        
+        # Draw trigger overview
+        draw.text((0, 0), f"TRIGGERS", fill=255)
+        draw.text((0, 8), f"TIMER: {timer_status}", fill=255)
+        draw.text((64, 8), f"IMU: {imu_status}", fill=255)
+        draw.text((0, 16), f"GPIO{gpio_pin}: {gpio_status}", fill=255)
+        draw.text((0, 24), f"WEB: READY", fill=255)
+        
+        self.display.image(image)
+        self.display.show()
+    
     def show_capture_status(self, command_id, master_success=None):
         """Show capture status temporarily"""
         if not self.available:
@@ -318,6 +462,32 @@ class MasterOLEDDisplay:
             
         except Exception as e:
             logger.error(f"Failed to show capture status: {e}")
+    
+    def show_sequence_progress(self, current_photo, total_photos, boards_responding):
+        """Show progress during photo sequences"""
+        if not self.available:
+            return
+            
+        try:
+            image = Image.new("1", (128, 32))
+            draw = ImageDraw.Draw(image)
+            
+            # Show sequence progress
+            progress_percent = int((current_photo / total_photos) * 100) if total_photos > 0 else 0
+            
+            draw.text((0, 0), f"SEQUENCE PROGRESS", fill=255)
+            draw.text((0, 8), f"PHOTO: {current_photo}/{total_photos}", fill=255)
+            draw.text((0, 16), f"PROGRESS: {progress_percent}%", fill=255)
+            draw.text((0, 24), f"BOARDS: {boards_responding} OK", fill=255)
+            
+            self.display.image(image)
+            self.display.show()
+            
+            # Reset update timer
+            self.last_update = time.time()
+            
+        except Exception as e:
+            logger.error(f"Failed to show sequence progress: {e}")
     
     def show_error_message(self, message):
         """Show error message on display"""

@@ -952,7 +952,18 @@ class MasterHelmetSystem:
         logger.info(f"Starting photo sequence: {count} photos with {interval}s intervals")
         
         for i in range(count):
+            current_photo = i + 1
+            
+            # Show progress on OLED
+            if hasattr(self, 'oled_display') and self.oled_display.available:
+                # Count responsive boards
+                board_stats = self.mqtt_service.get_board_stats()
+                responsive_boards = len([s for s in board_stats.values() if s.get("status") == "online"]) + 1  # +1 for master
+                
+                self.oled_display.show_sequence_progress(current_photo, count, responsive_boards)
+            
             command_id, success = self.capture_single_photo(f"{trigger_source}_{i+1}")
+            
             if i < count - 1:  # Don't wait after last capture
                 time.sleep(interval)
         

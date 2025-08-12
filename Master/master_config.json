@@ -18,7 +18,7 @@
     "timer_interval_seconds": 5,
     "imu_movement_enabled": false,
     "imu_movement_threshold": 2.0,
-    "imu_movement_cooldown_seconds": 2.0,
+    "imu_movement_cooldown_seconds": 1800.0,
     "gpio_pin20_enabled": true,
     "gpio_pin20_pin": 16
   },
