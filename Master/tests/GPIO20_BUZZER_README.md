@@ -1,26 +1,26 @@
-# GPIO 20 Continuous Triggering and Passive Buzzer Implementation
+# GPIO Continuous Triggering and Passive Buzzer Implementation
 
-This document describes the implementation of the GPIO 20 continuous photo triggering and passive buzzer functionality for the Master board.
+This document describes the implementation of the GPIO continuous photo triggering and passive buzzer functionality for the Master board.
 
 ## Features Implemented
 
-### 1. GPIO 20 Continuous Photo Triggering
+### 1. GPIO Continuous Photo Triggering
 
-**Previous Behavior:** GPIO 20 triggered photos on falling edge (when button was pressed)
+**Previous Behavior:** GPIO triggered photos on falling edge (when button was pressed)
 
-**New Behavior:** GPIO 20 triggers photos every 5 seconds while the pin is LOW
+**New Behavior:** GPIO triggers photos every 5 seconds while the pin is LOW
 
 #### How it Works:
 - Uses pull-up resistor configuration (HIGH by default)
-- When GPIO 20 is connected to GND (LOW), the system captures photos every 5 seconds
-- When GPIO 20 is disconnected (HIGH), no photos are taken
+- When GPIO pin is connected to GND (LOW), the system captures photos every 5 seconds
+- When GPIO pin is disconnected (HIGH), no photos are taken
 - Eliminates the need for repeated button presses
 
 #### Configuration:
 ```json
 "capture_triggers": {
   "gpio_pin20_enabled": true,
-  "gpio_pin20_pin": 20
+  "gpio_pin20_pin": 16
 }
 ```
 
@@ -68,9 +68,9 @@ class PassiveBuzzer:
 3. **Photo Sequences**: Plays completion sequence in `capture_photo_sequence()` method
 4. **Web Interface**: Modified to use new sequence method with beep
 
-### GPIO 20 Monitoring Changes
+### GPIO Trigger Monitoring Changes
 
-The `start_gpio20_monitoring()` method in `AutoCaptureManager` was modified:
+The `start_gpio_trigger_monitoring()` method in `AutoCaptureManager` was modified:
 
 - **Old**: Edge detection with debounce
 - **New**: Continuous state monitoring with 5-second intervals
@@ -86,7 +86,7 @@ Updated `master_config.json`:
   "buzzer_pin": 18,
   "capture_triggers": {
     "gpio_pin20_enabled": true,
-    "gpio_pin20_pin": 20
+    "gpio_pin20_pin": 16
   }
 }
 ```
@@ -133,7 +133,7 @@ python3 test_buzzer_gpio20.py
 ```
 Raspberry Pi GPIO:
 - Pin 18: Buzzer positive (+)
-- Pin 20: Switch/trigger input
+- Pin 16: Switch/trigger input
 - GND: Buzzer negative (-) and switch common
 ```
 

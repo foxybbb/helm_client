@@ -550,11 +550,11 @@ class AutoCaptureManager:
         self.last_imu_capture = 0
         self.last_acceleration = None
         
-        # GPIO pin 20 monitoring
-        self.gpio20_thread = None
-        self.gpio20_monitoring = False
-        self.gpio20_pin = self.triggers_config.get("gpio_pin20_pin", 20)
-        self.gpio20_initialized = False
+        # GPIO pin monitoring (configurable pin)
+        self.gpio_trigger_thread = None
+        self.gpio_trigger_monitoring = False
+        self.gpio_trigger_pin = self.triggers_config.get("gpio_pin20_pin", 16)
+        self.gpio_trigger_initialized = False
         
         logger.info(f"AutoCaptureManager initialized with config: {self.triggers_config}")
     
@@ -569,7 +569,7 @@ class AutoCaptureManager:
             self.start_imu_monitoring()
         
         if self.triggers_config.get("gpio_pin20_enabled", False):
-            self.start_gpio20_monitoring()
+            self.start_gpio_trigger_monitoring()
     
     def stop_all_triggers(self):
         """Stop all capture triggers"""
@@ -577,7 +577,7 @@ class AutoCaptureManager:
         
         self.stop_timer_capture()
         self.stop_imu_monitoring()
-        self.stop_gpio20_monitoring()
+        self.stop_gpio_trigger_monitoring()
     
     def start_timer_capture(self):
         """Start timer-based automatic capture"""
@@ -671,65 +671,65 @@ class AutoCaptureManager:
             self.imu_monitor_thread.join(timeout=2)
         logger.info("IMU movement monitoring stopped")
     
-    def start_gpio20_monitoring(self):
-        """Start GPIO pin 20 monitoring - triggers photos every 5 seconds when LOW"""
-        if self.gpio20_monitoring:
+    def start_gpio_trigger_monitoring(self):
+        """Start GPIO trigger pin monitoring - triggers photos every 5 seconds when LOW"""
+        if self.gpio_trigger_monitoring:
             return
             
         try:
-            # Setup GPIO pin 20 with pull-up resistor
+            # Setup GPIO trigger pin with pull-up resistor
             GPIO.setwarnings(False)
             GPIO.setmode(GPIO.BCM)
-            GPIO.setup(self.gpio20_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-            self.gpio20_initialized = True
-            logger.info(f"GPIO pin {self.gpio20_pin} initialized with pull-up for continuous monitoring")
+            GPIO.setup(self.gpio_trigger_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            self.gpio_trigger_initialized = True
+            logger.info(f"GPIO pin {self.gpio_trigger_pin} initialized with pull-up for continuous monitoring")
         except Exception as e:
-            logger.error(f"Failed to initialize GPIO pin {self.gpio20_pin}: {e}")
+            logger.error(f"Failed to initialize GPIO pin {self.gpio_trigger_pin}: {e}")
             return
         
-        self.gpio20_monitoring = True
+        self.gpio_trigger_monitoring = True
         
-        def gpio20_monitor_loop():
-            logger.info(f"GPIO pin {self.gpio20_pin} monitoring started - will capture every 5s when LOW")
+        def gpio_trigger_monitor_loop():
+            logger.info(f"GPIO pin {self.gpio_trigger_pin} monitoring started - will capture every 5s when LOW")
             last_capture_time = 0
             capture_interval = 5.0  # 5 seconds between captures when LOW
             
-            while self.gpio20_monitoring and self.master_system.running:
+            while self.gpio_trigger_monitoring and self.master_system.running:
                 try:
-                    current_state = GPIO.input(self.gpio20_pin)
+                    current_state = GPIO.input(self.gpio_trigger_pin)
                     current_time = time.time()
                     
                     # If pin is LOW (triggered) and enough time has passed since last capture
                     if current_state == GPIO.LOW:
                         if current_time - last_capture_time >= capture_interval:
-                            logger.info(f"GPIO pin {self.gpio20_pin} is LOW - triggering photo capture")
-                            self.master_system.capture_single_photo("gpio20_continuous")
+                            logger.info(f"GPIO pin {self.gpio_trigger_pin} is LOW - triggering photo capture")
+                            self.master_system.capture_single_photo(f"gpio{self.gpio_trigger_pin}_continuous")
                             last_capture_time = current_time
                     
                     time.sleep(0.1)  # Check every 100ms
                     
                 except Exception as e:
-                    logger.error(f"Error in GPIO pin {self.gpio20_pin} monitoring: {e}")
+                    logger.error(f"Error in GPIO pin {self.gpio_trigger_pin} monitoring: {e}")
                     time.sleep(1)
         
-        self.gpio20_thread = threading.Thread(target=gpio20_monitor_loop, daemon=True)
-        self.gpio20_thread.start()
-        logger.info(f"GPIO pin {self.gpio20_pin} continuous monitoring started")
+        self.gpio_trigger_thread = threading.Thread(target=gpio_trigger_monitor_loop, daemon=True)
+        self.gpio_trigger_thread.start()
+        logger.info(f"GPIO pin {self.gpio_trigger_pin} continuous monitoring started")
     
-    def stop_gpio20_monitoring(self):
-        """Stop GPIO pin 20 monitoring"""
-        self.gpio20_monitoring = False
-        if self.gpio20_thread and self.gpio20_thread.is_alive():
-            self.gpio20_thread.join(timeout=2)
+    def stop_gpio_trigger_monitoring(self):
+        """Stop GPIO trigger pin monitoring"""
+        self.gpio_trigger_monitoring = False
+        if self.gpio_trigger_thread and self.gpio_trigger_thread.is_alive():
+            self.gpio_trigger_thread.join(timeout=2)
         
-        if self.gpio20_initialized:
+        if self.gpio_trigger_initialized:
             try:
-                GPIO.cleanup(self.gpio20_pin)
-                logger.info(f"GPIO pin {self.gpio20_pin} cleanup completed")
+                GPIO.cleanup(self.gpio_trigger_pin)
+                logger.info(f"GPIO pin {self.gpio_trigger_pin} cleanup completed")
             except Exception as e:
-                logger.error(f"Error cleaning up GPIO pin {self.gpio20_pin}: {e}")
+                logger.error(f"Error cleaning up GPIO pin {self.gpio_trigger_pin}: {e}")
         
-        logger.info("GPIO pin 20 monitoring stopped")
+        logger.info(f"GPIO pin {self.gpio_trigger_pin} monitoring stopped")
 
 
 class MasterHelmetSystem:
