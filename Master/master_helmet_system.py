@@ -7,6 +7,7 @@ Collects and logs responses from all connected slaves.
 Includes web interface for monitoring and control.
 Master also captures photos as cam1 and saves IMU data.
 Supports automatic capture triggers: timer, IMU movement, GPIO pin 20.
+Includes passive buzzer functionality for system feedback.
 """
 
 import time
@@ -28,6 +29,87 @@ from web_master_server import setup_master_web_server, run_master_web_server
 
 
 logger = logging.getLogger(__name__)
+
+
+class PassiveBuzzer:
+    """Passive buzzer controller for system feedback"""
+    
+    def __init__(self, config):
+        self.pin = config.get("buzzer_pin", 18)  # Default to GPIO 18
+        self.pwm = None
+        self._buzzer_initialized = False
+        self._setup_buzzer()
+    
+    def _setup_buzzer(self):
+        """Initialize buzzer GPIO and PWM"""
+        try:
+            GPIO.setwarnings(False)
+            GPIO.setmode(GPIO.BCM)
+            GPIO.setup(self.pin, GPIO.OUT, initial=GPIO.LOW)
+            
+            # Setup PWM for passive buzzer (1000Hz default)
+            self.pwm = GPIO.PWM(self.pin, 1000)
+            
+            self._buzzer_initialized = True
+            logger.info(f"Passive buzzer initialized on GPIO pin {self.pin}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize buzzer on pin {self.pin}: {e}")
+            self._buzzer_initialized = False
+    
+    def beep(self, frequency=1000, duration=0.1, duty_cycle=50):
+        """Generate a beep sound
+        
+        Args:
+            frequency: Sound frequency in Hz
+            duration: Beep duration in seconds  
+            duty_cycle: PWM duty cycle (0-100)
+        """
+        if not self._buzzer_initialized:
+            logger.warning("Buzzer not initialized - skipping beep")
+            return
+        
+        try:
+            self.pwm.ChangeFrequency(frequency)
+            self.pwm.start(duty_cycle)
+            time.sleep(duration)
+            self.pwm.stop()
+            logger.debug(f"Buzzer beep: {frequency}Hz for {duration}s")
+            
+        except Exception as e:
+            logger.error(f"Buzzer beep error: {e}")
+    
+    def startup_sequence(self):
+        """Play startup beep sequence"""
+        logger.info("Playing startup beep sequence")
+        self.beep(800, 0.1)  # Low beep
+        time.sleep(0.05)
+        self.beep(1200, 0.1)  # High beep
+        time.sleep(0.05)
+        self.beep(1000, 0.2)  # Medium beep longer
+    
+    def photo_finished_beep(self):
+        """Single beep when photo is finished"""
+        logger.debug("Photo finished beep")
+        self.beep(1200, 0.1)
+    
+    def all_photos_finished_beep(self):
+        """Sequence when all photos are finished"""
+        logger.info("Playing all photos finished beep sequence")
+        for _ in range(3):
+            self.beep(1500, 0.1)
+            time.sleep(0.1)
+    
+    def cleanup(self):
+        """Cleanup buzzer GPIO"""
+        try:
+            if self.pwm:
+                self.pwm.stop()
+            if self._buzzer_initialized:
+                GPIO.cleanup(self.pin)
+                logger.info("Buzzer cleanup completed")
+        except Exception as e:
+            logger.error(f"Error during buzzer cleanup: {e}")
 
 
 class MQTTMasterService:
@@ -590,7 +672,7 @@ class AutoCaptureManager:
         logger.info("IMU movement monitoring stopped")
     
     def start_gpio20_monitoring(self):
-        """Start GPIO pin 20 monitoring"""
+        """Start GPIO pin 20 monitoring - triggers photos every 5 seconds when LOW"""
         if self.gpio20_monitoring:
             return
             
@@ -600,7 +682,7 @@ class AutoCaptureManager:
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(self.gpio20_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             self.gpio20_initialized = True
-            logger.info(f"GPIO pin {self.gpio20_pin} initialized with pull-up")
+            logger.info(f"GPIO pin {self.gpio20_pin} initialized with pull-up for continuous monitoring")
         except Exception as e:
             logger.error(f"Failed to initialize GPIO pin {self.gpio20_pin}: {e}")
             return
@@ -608,21 +690,23 @@ class AutoCaptureManager:
         self.gpio20_monitoring = True
         
         def gpio20_monitor_loop():
-            logger.info(f"GPIO pin {self.gpio20_pin} monitoring started")
-            last_state = GPIO.input(self.gpio20_pin)
+            logger.info(f"GPIO pin {self.gpio20_pin} monitoring started - will capture every 5s when LOW")
+            last_capture_time = 0
+            capture_interval = 5.0  # 5 seconds between captures when LOW
             
             while self.gpio20_monitoring and self.master_system.running:
                 try:
                     current_state = GPIO.input(self.gpio20_pin)
+                    current_time = time.time()
                     
-                    # Trigger on falling edge (pull-up means LOW when pressed)
-                    if last_state == GPIO.HIGH and current_state == GPIO.LOW:
-                        logger.info(f"GPIO pin {self.gpio20_pin} trigger detected")
-                        self.master_system.capture_single_photo("gpio20_trigger")
-                        time.sleep(0.5)  # Debounce
+                    # If pin is LOW (triggered) and enough time has passed since last capture
+                    if current_state == GPIO.LOW:
+                        if current_time - last_capture_time >= capture_interval:
+                            logger.info(f"GPIO pin {self.gpio20_pin} is LOW - triggering photo capture")
+                            self.master_system.capture_single_photo("gpio20_continuous")
+                            last_capture_time = current_time
                     
-                    last_state = current_state
-                    time.sleep(0.05)  # 20Hz polling
+                    time.sleep(0.1)  # Check every 100ms
                     
                 except Exception as e:
                     logger.error(f"Error in GPIO pin {self.gpio20_pin} monitoring: {e}")
@@ -630,7 +714,7 @@ class AutoCaptureManager:
         
         self.gpio20_thread = threading.Thread(target=gpio20_monitor_loop, daemon=True)
         self.gpio20_thread.start()
-        logger.info(f"GPIO pin {self.gpio20_pin} monitoring started")
+        logger.info(f"GPIO pin {self.gpio20_pin} continuous monitoring started")
     
     def stop_gpio20_monitoring(self):
         """Stop GPIO pin 20 monitoring"""
@@ -664,6 +748,9 @@ class MasterHelmetSystem:
         
         # OLED display functionality
         self.oled_display = MasterOLEDDisplay()
+        
+        # Passive buzzer functionality
+        self.buzzer = PassiveBuzzer(config)
         
         # Display update thread
         self.display_thread = None
@@ -701,6 +788,9 @@ class MasterHelmetSystem:
         
         # Start automatic capture triggers
         self.auto_capture.start_all_triggers()
+        
+        # Play startup beep sequence
+        threading.Thread(target=self.buzzer.startup_sequence, daemon=True).start()
         
         self.running = True
     
@@ -828,6 +918,9 @@ class MasterHelmetSystem:
             # Send polling message periodically
             self.mqtt_service.send_poll_message()
             
+            # Play beep when photo capture is finished
+            threading.Thread(target=self.buzzer.photo_finished_beep, daemon=True).start()
+            
             return command_id, master_photo_success
             
         except Exception as e:
@@ -843,6 +936,19 @@ class MasterHelmetSystem:
         web_session_note = f"web_single_{now.strftime('%H%M%S')}"
         
         return self.capture_single_photo(f"web_{web_session_note}")
+    
+    def capture_photo_sequence(self, count, interval, trigger_source="sequence"):
+        """Capture a sequence of photos with beep at the end"""
+        logger.info(f"Starting photo sequence: {count} photos with {interval}s intervals")
+        
+        for i in range(count):
+            command_id, success = self.capture_single_photo(f"{trigger_source}_{i+1}")
+            if i < count - 1:  # Don't wait after last capture
+                time.sleep(interval)
+        
+        # Play "all photos finished" beep sequence
+        threading.Thread(target=self.buzzer.all_photos_finished_beep, daemon=True).start()
+        logger.info(f"Photo sequence completed: {count} photos")
     
     def cleanup(self):
         """Cleanup master system"""
@@ -865,6 +971,10 @@ class MasterHelmetSystem:
         # Cleanup OLED display
         if hasattr(self, 'oled_display'):
             self.oled_display.cleanup()
+        
+        # Cleanup buzzer
+        if hasattr(self, 'buzzer'):
+            self.buzzer.cleanup()
         
         # Cleanup other components
         self.gpio_generator.cleanup()

@@ -7,7 +7,8 @@ AP_SSID="HelmetAP"
 AP_PASSWORD="12345678"
 AP_INTERFACE="wlan0"
 AP_IP="192.168.4.1"
-CONNECTION_NAME="HelmetAP-Hotspot"
+CONNECTION_NAME="HelmetAP-Hotspot
+"
 
 # Color codes for output
 RED='\033[0;31m'

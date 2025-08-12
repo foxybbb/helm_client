@@ -128,13 +128,10 @@ def api_send_command():
         if not master_system or not hasattr(master_system, 'capture_single_photo'):
             return jsonify({"error": "Master system not ready"}), 503
         
-        # Execute capture sequence using single photo captures
+        # Execute capture sequence using the new sequence method with beep
         def execute_capture():
             try:
-                for i in range(count):
-                    command_id, success = master_system.capture_single_photo(f"web_sequence_{i+1}")
-                    if i < count - 1:  # Don't wait after last capture
-                        time.sleep(interval)
+                master_system.capture_photo_sequence(count, interval, "web_sequence")
                 web_status["total_commands_sent"] += count
             except Exception as e:
                 logging.error(f"Error executing capture sequence: {e}")
