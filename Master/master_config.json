@@ -23,7 +23,7 @@
     "gpio_pin20_pin": 16
   },
   "mqtt": {
-    "broker_host": "192.168.4.1",
+    "broker_host": "192.168.4.11",
     "broker_port": 1883,
     "topic_commands": "helmet/commands",
     "topic_responses": "helmet/responses",
