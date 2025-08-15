@@ -766,9 +766,6 @@ class MasterHelmetSystem:
         self.display_thread = None
         self.display_running = False
         
-        # Auto capture manager
-        self.auto_capture = AutoCaptureManager(config, self)
-        
         self.running = False
         
     def start(self):
@@ -796,13 +793,16 @@ class MasterHelmetSystem:
         # Start OLED display updates
         self._start_display_updates()
         
-        # Start automatic capture triggers
-        self.auto_capture.start_all_triggers()
-        
         # Play startup beep sequence
         threading.Thread(target=self.buzzer.startup_sequence, daemon=True).start()
         
         self.running = True
+
+        # Auto capture manager
+        self.auto_capture = AutoCaptureManager(self.config, self)
+
+        # Start automatic capture triggers
+        self.auto_capture.start_all_triggers()
     
     def _setup_imu_logging(self):
         """Setup IMU data logging to session directory"""
