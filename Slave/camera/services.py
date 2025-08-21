@@ -397,7 +397,7 @@ class HelmetCamera:
                     return None
             
             # Create timestamp for filename
-            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.datetime.now().strftime('%H%M%S')
             filename = f"cam{self.cam_number}_{timestamp}_{photo_count}.jpg"
             photo_path = session_dir / filename
             
